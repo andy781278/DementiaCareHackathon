@@ -11,6 +11,11 @@
 		5F36254E308D5172004C3C5A /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5F36254D308D5172004C3C5A /* ContentView.swift */; };
 		5F362550308D5175004C3C5A /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5F36254F308D5175004C3C5A /* Assets.xcassets */; };
 		5F362553308D5175004C3C5A /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 5F362552308D5175004C3C5A /* Preview Assets.xcassets */; };
+		A1D0C0DE0000000000000101 /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000100 /* Models.swift */; };
+		A1D0C0DE0000000000000103 /* RoleSelectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000102 /* RoleSelectionView.swift */; };
+		A1D0C0DE0000000000000105 /* PatientSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000104 /* PatientSetupView.swift */; };
+		A1D0C0DE0000000000000107 /* CaretakerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000106 /* CaretakerSetupView.swift */; };
+		A1D0C0DE0000000000000109 /* HomeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000108 /* HomeViews.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -19,6 +24,11 @@
 		5F36254D308D5172004C3C5A /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		5F36254F308D5175004C3C5A /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		5F362552308D5175004C3C5A /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000100 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000102 /* RoleSelectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RoleSelectionView.swift; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000104 /* PatientSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatientSetupView.swift; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000106 /* CaretakerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaretakerSetupView.swift; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000108 /* HomeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViews.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -53,6 +63,11 @@
 			children = (
 				5F36254B308D5172004C3C5A /* DementiaCareHackathonApp.swift */,
 				5F36254D308D5172004C3C5A /* ContentView.swift */,
+				A1D0C0DE0000000000000100 /* Models.swift */,
+				A1D0C0DE0000000000000102 /* RoleSelectionView.swift */,
+				A1D0C0DE0000000000000104 /* PatientSetupView.swift */,
+				A1D0C0DE0000000000000106 /* CaretakerSetupView.swift */,
+				A1D0C0DE0000000000000108 /* HomeViews.swift */,
 				5F36254F308D5175004C3C5A /* Assets.xcassets */,
 				5F362551308D5175004C3C5A /* Preview Content */,
 			);
@@ -138,6 +153,11 @@
 			buildActionMask = 2147483647;
 			files = (
 				5F36254E308D5172004C3C5A /* ContentView.swift in Sources */,
+				A1D0C0DE0000000000000101 /* Models.swift in Sources */,
+				A1D0C0DE0000000000000103 /* RoleSelectionView.swift in Sources */,
+				A1D0C0DE0000000000000105 /* PatientSetupView.swift in Sources */,
+				A1D0C0DE0000000000000107 /* CaretakerSetupView.swift in Sources */,
+				A1D0C0DE0000000000000109 /* HomeViews.swift in Sources */,
 				5F36254C308D5172004C3C5A /* DementiaCareHackathonApp.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

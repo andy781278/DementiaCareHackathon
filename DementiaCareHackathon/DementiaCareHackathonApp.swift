@@ -11,10 +11,12 @@ import UserNotifications
 @main
 struct DementiaCareHackathonApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    @StateObject private var store = AppStore()
 
     var body: some Scene {
         WindowGroup {
             ContentView()
+                .environmentObject(store)
         }
     }
 }
