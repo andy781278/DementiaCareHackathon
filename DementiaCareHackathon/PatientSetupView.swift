@@ -7,6 +7,7 @@
 
 import SwiftUI
 import CoreLocation
+import MapKit
 
 // MARK: - Steps
 
@@ -216,18 +217,80 @@ struct HomeAddressInput: View {
         isSearching = true
         errorMessage = nil
 
-        CLGeocoder().geocodeAddressString(address) { placemarks, _ in
-            DispatchQueue.main.async {
-                isSearching = false
-                guard let placemark = placemarks?.first, let location = placemark.location else {
-                    errorMessage = "Address not found. Check the spelling and try again."
-                    return
+        // First try Apple's geocoder. If it finds nothing, try a MapKit search, which matches more loosely.
+        CLGeocoder().geocodeAddressString(address) { placemarks, geocoderError in
+            if let placemark = placemarks?.first, let location = placemark.location {
+                DispatchQueue.main.async {
+                    apply(placemark: placemark, location: location)
                 }
-                profile.homeLatitude = location.coordinate.latitude
-                profile.homeLongitude = location.coordinate.longitude
-                profile.resolvedHomeAddress = HomeAddressInput.format(placemark)
+                return
+            }
+            if let geocoderError = geocoderError {
+                print("CLGeocoder error: \(geocoderError)")
+            }
+            DispatchQueue.main.async {
+                searchWithMapKit(address, previousError: geocoderError)
             }
         }
+    }
+
+    private func searchWithMapKit(_ address: String, previousError: Error?) {
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = address
+        request.resultTypes = [.address, .pointOfInterest]
+
+        MKLocalSearch(request: request).start { response, searchError in
+            DispatchQueue.main.async {
+                if let item = response?.mapItems.first, let location = item.placemark.location {
+                    apply(placemark: item.placemark, location: location)
+                    return
+                }
+                if let searchError = searchError {
+                    print("MKLocalSearch error: \(searchError)")
+                }
+                isSearching = false
+                errorMessage = HomeAddressInput.describe(searchError ?? previousError)
+            }
+        }
+    }
+
+    private func apply(placemark: CLPlacemark, location: CLLocation) {
+        isSearching = false
+        errorMessage = nil
+        profile.homeLatitude = location.coordinate.latitude
+        profile.homeLongitude = location.coordinate.longitude
+        profile.resolvedHomeAddress = HomeAddressInput.format(placemark)
+    }
+
+    private static func describe(_ error: Error?) -> String {
+        guard let error = error else {
+            return "Address not found. Check the spelling and try again."
+        }
+        if let clError = error as? CLError {
+            switch clError.code {
+            case .network:
+                return "Could not reach Apple's address service. Check that this phone or simulator is online."
+            case .geocodeFoundNoResult, .geocodeFoundPartialResult:
+                return "Address not found. Check the spelling and try again."
+            default:
+                break
+            }
+        }
+        if let mkError = error as? MKError {
+            switch mkError.code {
+            case .serverFailure:
+                return "Could not reach Apple's address service. Check that this phone or simulator is online."
+            case .placemarkNotFound:
+                return "Address not found. Check the spelling and try again."
+            default:
+                break
+            }
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            return "Could not reach Apple's address service. Check that this phone or simulator is online."
+        }
+        return "Address lookup failed: \(error.localizedDescription) (\(nsError.domain) \(nsError.code))"
     }
 
     private static func format(_ placemark: CLPlacemark) -> String {
