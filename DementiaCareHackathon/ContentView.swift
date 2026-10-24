@@ -22,13 +22,13 @@ struct ContentView: View {
             if let profile = store.patientProfile {
                 PatientHomeView(profile: profile)
             } else {
-                PatientSetupView(profile: PatientProfile(), isEditing: false)
+                PatientSetupFlow()
             }
         } else if store.role == .caretaker {
             if let profile = store.caretakerProfile {
                 CaretakerHomeView(profile: profile)
             } else {
-                CaretakerSetupView(profile: CaretakerProfile(), isEditing: false)
+                CaretakerSetupFlow()
             }
         } else {
             RoleSelectionView()

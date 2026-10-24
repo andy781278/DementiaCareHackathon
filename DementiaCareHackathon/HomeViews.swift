@@ -2,7 +2,7 @@
 //  HomeViews.swift
 //  DementiaCareHackathon
 //
-//  Screens shown after setup is saved. They show the saved setup and let it be edited.
+//  Screens shown after setup is saved. Tapping an item opens that field on its own screen to change it.
 //
 
 import SwiftUI
@@ -11,91 +11,49 @@ struct PatientHomeView: View {
     @EnvironmentObject private var store: AppStore
     let profile: PatientProfile
 
-    @State private var showingEdit = false
     @State private var confirmingReset = false
 
     var body: some View {
         List {
-            Section {
-                LabeledContent("Name", value: profile.name)
-                LabeledContent("Dementia level", value: profile.dementiaLevel.title)
-            } header: {
-                Text("Patient")
-            }
-
-            Section {
-                LabeledContent(
-                    "Address",
-                    value: profile.resolvedHomeAddress.isEmpty ? profile.homeAddress : profile.resolvedHomeAddress
-                )
-                LabeledContent("Alert distance", value: String(format: "%.1f mi", profile.safeRadiusMiles))
-            } header: {
-                Text("Home")
-            }
-
-            Section {
-                if profile.hasCaretaker {
-                    LabeledContent("Email", value: profile.caretakerEmail)
-                    LabeledContent("Pairing code", value: profile.pairingCode)
-                } else {
-                    Text("Independent mode")
+            if profile.hasCaretaker {
+                Section {
+                    Text(profile.formattedPairingCode)
+                        .font(.system(size: 44, weight: .bold, design: .monospaced))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                } header: {
+                    Text("Pairing code")
+                        .font(.headline)
+                } footer: {
+                    Text("The caretaker enters this code in their app.")
+                        .font(.body)
                 }
-            } header: {
-                Text("Caretaker")
             }
 
             Section {
-                if profile.medications.isEmpty {
-                    Text("None")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(profile.medications) { medication in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(medication.name)
-                            Text(medication.summary)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
+                ForEach(PatientStep.homeRows, id: \.self) { step in
+                    NavigationLink(destination: PatientFieldEditor(step: step, profile: profile)) {
+                        SummaryRow(label: step.rowLabel, value: step.value(for: profile))
                     }
                 }
             } header: {
-                Text("Medications")
+                Text("Setup")
+                    .font(.headline)
+            } footer: {
+                Text("Tap an item to change it.")
+                    .font(.body)
             }
 
             Section {
-                let enabledMeals = profile.meals.filter { $0.enabled }
-                if enabledMeals.isEmpty {
-                    Text("None")
-                        .foregroundColor(.secondary)
-                } else {
-                    ForEach(enabledMeals) { meal in
-                        LabeledContent(meal.name, value: TimeOfDay.display(meal.time))
-                    }
-                }
-            } header: {
-                Text("Meal reminders")
-            }
-
-            Section {
-                Button("Change role", role: .destructive) {
+                Button(role: .destructive) {
                     confirmingReset = true
+                } label: {
+                    Text("Change role")
+                        .font(.title3)
                 }
             }
         }
-        .navigationTitle("Patient")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") {
-                    showingEdit = true
-                }
-            }
-        }
-        .sheet(isPresented: $showingEdit) {
-            NavigationStack {
-                PatientSetupView(profile: profile, isEditing: true)
-            }
-            .environmentObject(store)
-        }
+        .navigationTitle(profile.name)
         .confirmationDialog(
             "Change role? This clears all setup on this phone.",
             isPresented: $confirmingReset,
@@ -112,52 +70,41 @@ struct CaretakerHomeView: View {
     @EnvironmentObject private var store: AppStore
     let profile: CaretakerProfile
 
-    @State private var showingEdit = false
     @State private var confirmingReset = false
 
     var body: some View {
         List {
             Section {
-                LabeledContent("Name", value: profile.name)
-                LabeledContent("Email", value: profile.email)
-            } header: {
-                Text("You")
-            }
-
-            Section {
-                LabeledContent("Pairing code", value: profile.patientPairingCode)
-                LabeledContent("Status", value: "Not connected")
+                SummaryRow(label: "Status", value: "Not connected")
             } header: {
                 Text("Patient")
+                    .font(.headline)
             }
 
             Section {
-                LabeledContent("Vibrate", value: profile.vibrateOnAlert ? "On" : "Off")
-                LabeledContent("Notifications", value: profile.notifyOnAlert ? "On" : "Off")
+                ForEach(CaretakerStep.allCases, id: \.self) { step in
+                    NavigationLink(destination: CaretakerFieldEditor(step: step, profile: profile)) {
+                        SummaryRow(label: step.rowLabel, value: step.value(for: profile))
+                    }
+                }
             } header: {
-                Text("Alerts")
+                Text("Setup")
+                    .font(.headline)
+            } footer: {
+                Text("Tap an item to change it.")
+                    .font(.body)
             }
 
             Section {
-                Button("Change role", role: .destructive) {
+                Button(role: .destructive) {
                     confirmingReset = true
+                } label: {
+                    Text("Change role")
+                        .font(.title3)
                 }
             }
         }
-        .navigationTitle("Caretaker")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button("Edit") {
-                    showingEdit = true
-                }
-            }
-        }
-        .sheet(isPresented: $showingEdit) {
-            NavigationStack {
-                CaretakerSetupView(profile: profile, isEditing: true)
-            }
-            .environmentObject(store)
-        }
+        .navigationTitle(profile.name)
         .confirmationDialog(
             "Change role? This clears all setup on this phone.",
             isPresented: $confirmingReset,

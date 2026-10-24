@@ -2,269 +2,230 @@
 //  PatientSetupView.swift
 //  DementiaCareHackathon
 //
+//  Patient setup, one field per screen. The pairing code is shown on the final screen.
+//
 
 import SwiftUI
 import CoreLocation
 
-private enum GeocodeStatus {
-    case idle
-    case searching
-    case found(String)
-    case failed(String)
-}
+// MARK: - Steps
 
-struct PatientSetupView: View {
-    @EnvironmentObject private var store: AppStore
-    @Environment(\.dismiss) private var dismiss
+enum PatientStep: Hashable, CaseIterable {
+    case name
+    case homeAddress
+    case distance
+    case hasCaretaker
+    case caretakerEmail
+    case dementiaLevel
 
-    @State private var draft: PatientProfile
-    @State private var geocodeStatus: GeocodeStatus
-    @State private var editingMedication: Medication?
-
-    let isEditing: Bool
-
-    init(profile: PatientProfile, isEditing: Bool) {
-        _draft = State(initialValue: profile)
-        if profile.isHomeLocated {
-            let shown = profile.resolvedHomeAddress.isEmpty ? profile.homeAddress : profile.resolvedHomeAddress
-            _geocodeStatus = State(initialValue: .found(shown))
-        } else {
-            _geocodeStatus = State(initialValue: .idle)
+    /// Steps used in the setup flow. The email step is skipped in independent mode.
+    static func steps(for profile: PatientProfile) -> [PatientStep] {
+        if profile.hasCaretaker {
+            return allCases
         }
-        self.isEditing = isEditing
+        return allCases.filter { $0 != .caretakerEmail }
     }
 
-    var body: some View {
-        Form {
-            patientSection
-            homeSection
-            caretakerSection
-            dementiaSection
-            medicationSection
-            mealSection
+    /// Rows shown on the patient home screen. The email is edited together with the caretaker choice.
+    static let homeRows: [PatientStep] = [.name, .homeAddress, .distance, .hasCaretaker, .dementiaLevel]
 
-            if let message = validationMessage {
-                Section {
-                    Label(message, systemImage: "exclamationmark.circle")
-                        .foregroundColor(.orange)
+    var title: String {
+        switch self {
+        case .name: return "Patient name"
+        case .homeAddress: return "Home address"
+        case .distance: return "How far is too far?"
+        case .hasCaretaker: return "Is there a caretaker?"
+        case .caretakerEmail: return "Caretaker's email"
+        case .dementiaLevel: return "Dementia level"
+        }
+    }
+
+    var subtitle: String? {
+        switch self {
+        case .name: return nil
+        case .homeAddress: return "Used to tell when the patient has gone too far from home."
+        case .distance: return "An alert is sent when the patient goes farther than this from home."
+        case .hasCaretaker: return nil
+        case .caretakerEmail: return "Used to connect this phone with the caretaker's app."
+        case .dementiaLevel: return "Sets how often reminders repeat."
+        }
+    }
+
+    var rowLabel: String {
+        switch self {
+        case .name: return "Name"
+        case .homeAddress: return "Home address"
+        case .distance: return "Alert distance"
+        case .hasCaretaker: return "Caretaker"
+        case .caretakerEmail: return "Caretaker email"
+        case .dementiaLevel: return "Dementia level"
+        }
+    }
+
+    func value(for profile: PatientProfile) -> String {
+        switch self {
+        case .name: return profile.name
+        case .homeAddress: return profile.displayHomeAddress
+        case .distance: return String(format: "%.1f miles", profile.safeRadiusMiles)
+        case .hasCaretaker: return profile.hasCaretaker ? profile.caretakerEmail : "None (independent mode)"
+        case .caretakerEmail: return profile.caretakerEmail
+        case .dementiaLevel: return profile.dementiaLevel.title
+        }
+    }
+
+    func isComplete(_ profile: PatientProfile) -> Bool {
+        switch self {
+        case .name: return !profile.name.trimmed.isEmpty
+        case .homeAddress: return profile.isHomeLocated
+        case .distance: return true
+        case .hasCaretaker: return true
+        case .caretakerEmail: return AppStore.isValidEmail(profile.caretakerEmail)
+        case .dementiaLevel: return true
+        }
+    }
+}
+
+// MARK: - Step content
+
+/// The input for one patient step. Used by both the setup flow and the edit screens.
+struct PatientStepContent: View {
+    let step: PatientStep
+    @Binding var profile: PatientProfile
+
+    var body: some View {
+        switch step {
+        case .name:
+            BigTextField(
+                placeholder: "Full name",
+                text: $profile.name,
+                contentType: .name,
+                capitalization: .words
+            )
+
+        case .homeAddress:
+            HomeAddressInput(profile: $profile)
+
+        case .distance:
+            DistanceInput(miles: $profile.safeRadiusMiles)
+
+        case .hasCaretaker:
+            VStack(spacing: 16) {
+                ChoiceCard(
+                    title: "Yes",
+                    detail: "A caretaker receives updates and alerts on their phone.",
+                    systemImage: "person.2.fill",
+                    isSelected: profile.hasCaretaker
+                ) {
+                    profile.hasCaretaker = true
+                }
+                ChoiceCard(
+                    title: "No",
+                    detail: "Independent mode. The app gives more spoken guidance, such as telling the patient to return to a familiar area.",
+                    systemImage: "person.fill",
+                    isSelected: !profile.hasCaretaker
+                ) {
+                    profile.hasCaretaker = false
                 }
             }
-        }
-        .navigationTitle(isEditing ? "Edit Patient Setup" : "Patient Setup")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(isEditing ? "Cancel" : "Back") {
-                    if isEditing {
-                        dismiss()
-                    } else {
-                        store.role = nil
+
+        case .caretakerEmail:
+            BigTextField(
+                placeholder: "caretaker@email.com",
+                text: $profile.caretakerEmail,
+                keyboard: .emailAddress,
+                contentType: .emailAddress,
+                capitalization: .never,
+                autocorrect: false
+            )
+
+        case .dementiaLevel:
+            VStack(spacing: 16) {
+                ForEach(DementiaLevel.allCases) { level in
+                    ChoiceCard(
+                        title: level.title,
+                        detail: level.reminderDescription,
+                        isSelected: profile.dementiaLevel == level
+                    ) {
+                        profile.dementiaLevel = level
                     }
                 }
             }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    save()
-                }
-                .disabled(validationMessage != nil)
-            }
-        }
-        .onChange(of: draft.homeAddress) { _ in
-            // The typed address changed, so the old coordinates no longer match it.
-            draft.homeLatitude = nil
-            draft.homeLongitude = nil
-            draft.resolvedHomeAddress = ""
-            geocodeStatus = .idle
-        }
-        .sheet(item: $editingMedication) { medication in
-            MedicationEditView(medication: medication) { saved in
-                if let index = draft.medications.firstIndex(where: { $0.id == saved.id }) {
-                    draft.medications[index] = saved
-                } else {
-                    draft.medications.append(saved)
-                }
-            }
         }
     }
+}
 
-    // MARK: - Sections
+struct HomeAddressInput: View {
+    @Binding var profile: PatientProfile
 
-    private var patientSection: some View {
-        Section {
-            TextField("Full name", text: $draft.name)
-                .textContentType(.name)
-        } header: {
-            Text("Patient")
-        }
-    }
+    @State private var isSearching = false
+    @State private var errorMessage: String?
 
-    private var homeSection: some View {
-        Section {
-            TextField("Home address", text: $draft.homeAddress, axis: .vertical)
-                .textContentType(.fullStreetAddress)
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            BigTextField(
+                placeholder: "Street, city, state",
+                text: $profile.homeAddress,
+                multiline: true,
+                contentType: .fullStreetAddress
+            )
 
             Button {
                 findAddress()
             } label: {
-                HStack {
-                    Text("Find address")
+                HStack(spacing: 8) {
                     if isSearching {
-                        Spacer()
                         ProgressView()
+                    } else {
+                        Image(systemName: "magnifyingglass")
                     }
+                    Text("Find address")
                 }
+                .font(.title3.bold())
+                .frame(maxWidth: .infinity)
+                .frame(height: 56)
+                .background(Color.accentColor.opacity(0.15))
+                .cornerRadius(14)
             }
-            .disabled(draft.homeAddress.trimmed.isEmpty || isSearching)
+            .disabled(profile.homeAddress.trimmed.isEmpty || isSearching)
 
-            switch geocodeStatus {
-            case .idle, .searching:
-                EmptyView()
-            case .found(let address):
-                Label(address, systemImage: "checkmark.circle.fill")
-                    .foregroundColor(.green)
-            case .failed(let message):
-                Label(message, systemImage: "xmark.circle.fill")
+            if profile.isHomeLocated {
+                Label(
+                    profile.resolvedHomeAddress.isEmpty ? "Address found" : profile.resolvedHomeAddress,
+                    systemImage: "checkmark.circle.fill"
+                )
+                .font(.title3)
+                .foregroundColor(.green)
+            } else if let errorMessage = errorMessage {
+                Label(errorMessage, systemImage: "xmark.circle.fill")
+                    .font(.title3)
                     .foregroundColor(.red)
             }
-
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Alert if farther than \(draft.safeRadiusMiles, specifier: "%.1f") miles from home")
-                Slider(value: $draft.safeRadiusMiles, in: 0.1...5, step: 0.1)
-            }
-        } header: {
-            Text("Home")
-        } footer: {
-            Text("Used to check whether the patient has gone too far from home.")
         }
-    }
-
-    private var caretakerSection: some View {
-        Section {
-            Toggle("Patient has a caretaker", isOn: $draft.hasCaretaker)
-
-            if draft.hasCaretaker {
-                TextField("Caretaker email", text: $draft.caretakerEmail)
-                    .keyboardType(.emailAddress)
-                    .textContentType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-
-                HStack {
-                    Text("Pairing code")
-                    Spacer()
-                    Text(draft.pairingCode)
-                        .font(.title3.monospacedDigit())
-                        .bold()
-                }
-            }
-        } header: {
-            Text("Caretaker")
-        } footer: {
-            if draft.hasCaretaker {
-                Text("The caretaker enters this pairing code in their app to sync with this phone.")
-            } else {
-                Text("Independent mode: the app uses more audio cues, such as telling the patient to return to a familiar area when they go too far.")
-            }
+        .onChange(of: profile.homeAddress) { _ in
+            // The typed address changed, so the old coordinates no longer match it.
+            profile.homeLatitude = nil
+            profile.homeLongitude = nil
+            profile.resolvedHomeAddress = ""
+            errorMessage = nil
         }
-    }
-
-    private var dementiaSection: some View {
-        Section {
-            Picker("Level", selection: $draft.dementiaLevel) {
-                ForEach(DementiaLevel.allCases) { level in
-                    Text(level.title).tag(level)
-                }
-            }
-            .pickerStyle(.segmented)
-        } header: {
-            Text("Dementia level")
-        } footer: {
-            Text(draft.dementiaLevel.reminderDescription)
-        }
-    }
-
-    private var medicationSection: some View {
-        Section {
-            ForEach(draft.medications) { medication in
-                Button {
-                    editingMedication = medication
-                } label: {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(medication.name)
-                            .foregroundColor(.primary)
-                        Text(medication.summary)
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
-                }
-            }
-            .onDelete { offsets in
-                draft.medications.remove(atOffsets: offsets)
-            }
-
-            Button {
-                editingMedication = Medication()
-            } label: {
-                Label("Add medication", systemImage: "plus")
-            }
-        } header: {
-            Text("Medications (optional)")
-        } footer: {
-            Text("Tap a medication to edit it. Swipe left to delete.")
-        }
-    }
-
-    private var mealSection: some View {
-        Section {
-            ForEach($draft.meals) { $meal in
-                Toggle(meal.name, isOn: $meal.enabled)
-                if meal.enabled {
-                    DatePicker("\(meal.name) time", selection: $meal.time, displayedComponents: .hourAndMinute)
-                }
-            }
-        } header: {
-            Text("Meal reminders")
-        }
-    }
-
-    // MARK: - Logic
-
-    private var isSearching: Bool {
-        if case .searching = geocodeStatus {
-            return true
-        }
-        return false
-    }
-
-    private var validationMessage: String? {
-        if draft.name.trimmed.isEmpty {
-            return "Enter the patient's name."
-        }
-        if !draft.isHomeLocated {
-            return "Enter the home address and tap Find address."
-        }
-        if draft.hasCaretaker && !AppStore.isValidEmail(draft.caretakerEmail) {
-            return "Enter a valid caretaker email."
-        }
-        return nil
     }
 
     private func findAddress() {
-        let address = draft.homeAddress.trimmed
+        let address = profile.homeAddress.trimmed
         guard !address.isEmpty else { return }
-        geocodeStatus = .searching
+        isSearching = true
+        errorMessage = nil
 
         CLGeocoder().geocodeAddressString(address) { placemarks, _ in
             DispatchQueue.main.async {
+                isSearching = false
                 guard let placemark = placemarks?.first, let location = placemark.location else {
-                    geocodeStatus = .failed("Address not found. Check the spelling and try again.")
+                    errorMessage = "Address not found. Check the spelling and try again."
                     return
                 }
-                let formatted = PatientSetupView.format(placemark)
-                draft.homeLatitude = location.coordinate.latitude
-                draft.homeLongitude = location.coordinate.longitude
-                draft.resolvedHomeAddress = formatted
-                geocodeStatus = .found(formatted)
+                profile.homeLatitude = location.coordinate.latitude
+                profile.homeLongitude = location.coordinate.longitude
+                profile.resolvedHomeAddress = HomeAddressInput.format(placemark)
             }
         }
     }
@@ -279,93 +240,178 @@ struct PatientSetupView: View {
             .filter { !$0.isEmpty }
             .joined(separator: ", ")
     }
+}
 
-    private func save() {
-        var profile = draft
-        profile.name = profile.name.trimmed
-        profile.caretakerEmail = profile.caretakerEmail.trimmed
-        store.patientProfile = profile
-        if isEditing {
-            dismiss()
+struct DistanceInput: View {
+    @Binding var miles: Double
+
+    private let range: ClosedRange<Double> = 0.1...5
+
+    var body: some View {
+        VStack(spacing: 32) {
+            Text(String(format: "%.1f miles", miles))
+                .font(.system(size: 56, weight: .bold))
+                .frame(maxWidth: .infinity)
+
+            HStack(spacing: 16) {
+                stepButton(systemImage: "minus") {
+                    change(by: -0.1)
+                }
+                Slider(value: $miles, in: range, step: 0.1)
+                stepButton(systemImage: "plus") {
+                    change(by: 0.1)
+                }
+            }
+        }
+    }
+
+    private func change(by amount: Double) {
+        let rounded = ((miles + amount) * 10).rounded() / 10
+        miles = min(max(rounded, range.lowerBound), range.upperBound)
+    }
+
+    private func stepButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title.bold())
+                .frame(width: 56, height: 56)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(Circle())
         }
     }
 }
 
-// MARK: - Medication editor
+// MARK: - Setup flow
 
-struct MedicationEditView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var medication: Medication
-    private let onSave: (Medication) -> Void
+struct PatientSetupFlow: View {
+    @EnvironmentObject private var store: AppStore
 
-    init(medication: Medication, onSave: @escaping (Medication) -> Void) {
-        _medication = State(initialValue: medication)
-        self.onSave = onSave
+    @State private var profile = PatientProfile()
+    @State private var index = 0
+
+    private var steps: [PatientStep] {
+        PatientStep.steps(for: profile)
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    TextField("Name", text: $medication.name)
-                    TextField("Dose (e.g. 1 pill, 5 mg)", text: $medication.dosage)
-                } header: {
-                    Text("Medication")
+        Group {
+            if index < steps.count {
+                let step = steps[index]
+                SetupStepLayout(
+                    stepLabel: "Step \(index + 1) of \(steps.count)",
+                    title: step.title,
+                    subtitle: step.subtitle,
+                    buttonTitle: "Continue",
+                    buttonEnabled: step.isComplete(profile),
+                    action: goForward
+                ) {
+                    PatientStepContent(step: step, profile: $profile)
                 }
-
-                Section {
-                    ForEach($medication.doseTimes) { $dose in
-                        DatePicker("Time", selection: $dose.time, displayedComponents: .hourAndMinute)
-                    }
-                    .onDelete { offsets in
-                        medication.doseTimes.remove(atOffsets: offsets)
-                    }
-
-                    Button {
-                        medication.doseTimes.append(DoseTime(time: TimeOfDay.date(hour: 12)))
-                    } label: {
-                        Label("Add time", systemImage: "plus")
-                    }
-                } header: {
-                    Text("Times per day: \(medication.doseTimes.count)")
-                }
-
-                Section {
-                    DatePicker("Start", selection: $medication.startDate, displayedComponents: .date)
-                    Toggle("Has end date", isOn: $medication.hasEndDate)
-                    if medication.hasEndDate {
-                        DatePicker("End", selection: $medication.endDate, in: medication.startDate..., displayedComponents: .date)
-                    }
-                } header: {
-                    Text("Dates")
-                }
+                .id(step)
+            } else {
+                finishScreen
             }
-            .navigationTitle(medication.name.trimmed.isEmpty ? "New Medication" : medication.name)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        var saved = medication
-                        saved.name = saved.name.trimmed
-                        saved.dosage = saved.dosage.trimmed
-                        onSave(saved)
-                        dismiss()
-                    }
-                    .disabled(!isValid)
-                }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                BackToolbarButton(action: goBack)
             }
         }
     }
 
+    private var finishScreen: some View {
+        SetupStepLayout(
+            title: "Setup complete",
+            subtitle: profile.hasCaretaker
+                ? "Give this pairing code to the caretaker. They enter it in their app to connect."
+                : "Independent mode is on. The app will give spoken guidance.",
+            buttonTitle: "Done",
+            action: finish
+        ) {
+            VStack(alignment: .leading, spacing: 24) {
+                if profile.hasCaretaker {
+                    Text(profile.formattedPairingCode)
+                        .font(.system(size: 56, weight: .bold, design: .monospaced))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 28)
+                        .background(Color.accentColor.opacity(0.15))
+                        .cornerRadius(20)
+                }
+
+                SummaryBox(rows: steps.map { (label: $0.rowLabel, value: $0.value(for: profile)) })
+            }
+        }
+    }
+
+    private func goForward() {
+        withAnimation {
+            index += 1
+        }
+    }
+
+    private func goBack() {
+        if index == 0 {
+            store.role = nil
+        } else {
+            withAnimation {
+                index -= 1
+            }
+        }
+    }
+
+    private func finish() {
+        var saved = profile
+        saved.name = saved.name.trimmed
+        saved.caretakerEmail = saved.caretakerEmail.trimmed
+        store.patientProfile = saved
+    }
+}
+
+// MARK: - Editing one field later
+
+struct PatientFieldEditor: View {
+    @EnvironmentObject private var store: AppStore
+    @Environment(\.dismiss) private var dismiss
+
+    let step: PatientStep
+    @State private var profile: PatientProfile
+
+    init(step: PatientStep, profile: PatientProfile) {
+        self.step = step
+        _profile = State(initialValue: profile)
+    }
+
+    var body: some View {
+        SetupStepLayout(
+            title: step.title,
+            subtitle: step.subtitle,
+            buttonTitle: "Save",
+            buttonEnabled: isValid,
+            action: save
+        ) {
+            VStack(alignment: .leading, spacing: 24) {
+                PatientStepContent(step: step, profile: $profile)
+
+                if step == .hasCaretaker && profile.hasCaretaker {
+                    Text("Caretaker's email")
+                        .font(.title2.bold())
+                    PatientStepContent(step: .caretakerEmail, profile: $profile)
+                }
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
     private var isValid: Bool {
-        if medication.name.trimmed.isEmpty { return false }
-        if medication.doseTimes.isEmpty { return false }
-        if medication.hasEndDate && medication.endDate < medication.startDate { return false }
-        return true
+        PatientStep.steps(for: profile).allSatisfy { $0.isComplete(profile) }
+    }
+
+    private func save() {
+        var saved = profile
+        saved.name = saved.name.trimmed
+        saved.caretakerEmail = saved.caretakerEmail.trimmed
+        store.patientProfile = saved
+        dismiss()
     }
 }

@@ -50,69 +50,11 @@ enum DementiaLevel: String, Codable, CaseIterable, Identifiable {
         case .mild:
             return "One reminder at each scheduled time."
         case .moderate:
-            return "A reminder at each scheduled time, repeated once after 15 minutes."
+            return "Each reminder repeats once after 15 minutes."
         case .severe:
-            return "A reminder at each scheduled time, repeated 3 more times, 10 minutes apart."
+            return "Each reminder repeats 3 more times, 10 minutes apart."
         }
     }
-}
-
-// MARK: - Time helpers
-
-enum TimeOfDay {
-    /// Today's date at the given hour and minute. Only the hour and minute are used for reminders.
-    static func date(hour: Int, minute: Int = 0) -> Date {
-        Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date()) ?? Date()
-    }
-
-    static func minutesSinceMidnight(_ date: Date) -> Int {
-        let components = Calendar.current.dateComponents([.hour, .minute], from: date)
-        return (components.hour ?? 0) * 60 + (components.minute ?? 0)
-    }
-
-    static func display(_ date: Date) -> String {
-        date.formatted(date: .omitted, time: .shortened)
-    }
-}
-
-// MARK: - Medication and meals
-
-struct DoseTime: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var time: Date
-}
-
-struct Medication: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var name: String = ""
-    var dosage: String = ""
-    var doseTimes: [DoseTime] = [DoseTime(time: TimeOfDay.date(hour: 9))]
-    var startDate: Date = Calendar.current.startOfDay(for: Date())
-    var hasEndDate: Bool = false
-    var endDate: Date = Calendar.current.date(
-        byAdding: .day,
-        value: 30,
-        to: Calendar.current.startOfDay(for: Date())
-    ) ?? Date()
-
-    var sortedTimes: [Date] {
-        doseTimes
-            .map { $0.time }
-            .sorted { TimeOfDay.minutesSinceMidnight($0) < TimeOfDay.minutesSinceMidnight($1) }
-    }
-
-    var summary: String {
-        let times = sortedTimes.map { TimeOfDay.display($0) }.joined(separator: ", ")
-        let dose = dosage.trimmed
-        return dose.isEmpty ? times : "\(dose) at \(times)"
-    }
-}
-
-struct MealReminder: Identifiable, Codable, Equatable {
-    var id = UUID()
-    var name: String
-    var time: Date
-    var enabled: Bool = true
 }
 
 // MARK: - Profiles
@@ -131,19 +73,19 @@ struct PatientProfile: Codable, Equatable {
     var pairingCode: String = PatientProfile.generatePairingCode()
 
     var dementiaLevel: DementiaLevel = .mild
-    var medications: [Medication] = []
-    var meals: [MealReminder] = PatientProfile.defaultMeals
 
     var isHomeLocated: Bool {
         homeLatitude != nil && homeLongitude != nil
     }
 
-    static var defaultMeals: [MealReminder] {
-        [
-            MealReminder(name: "Breakfast", time: TimeOfDay.date(hour: 8)),
-            MealReminder(name: "Lunch", time: TimeOfDay.date(hour: 12)),
-            MealReminder(name: "Dinner", time: TimeOfDay.date(hour: 18))
-        ]
+    var displayHomeAddress: String {
+        resolvedHomeAddress.isEmpty ? homeAddress : resolvedHomeAddress
+    }
+
+    /// Pairing code with a space in the middle, e.g. "123 456".
+    var formattedPairingCode: String {
+        guard pairingCode.count == 6 else { return pairingCode }
+        return "\(pairingCode.prefix(3)) \(pairingCode.suffix(3))"
     }
 
     static func generatePairingCode() -> String {

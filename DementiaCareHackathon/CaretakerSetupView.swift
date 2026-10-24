@@ -2,109 +2,249 @@
 //  CaretakerSetupView.swift
 //  DementiaCareHackathon
 //
+//  Caretaker setup, one field per screen. The patient's pairing code is entered last.
+//
 
 import SwiftUI
 
-struct CaretakerSetupView: View {
+// MARK: - Steps
+
+enum CaretakerStep: Hashable, CaseIterable {
+    case name
+    case email
+    case alerts
+    case pairingCode
+
+    var title: String {
+        switch self {
+        case .name: return "Your name"
+        case .email: return "Your email"
+        case .alerts: return "How should we alert you?"
+        case .pairingCode: return "Patient's pairing code"
+        }
+    }
+
+    var subtitle: String? {
+        switch self {
+        case .name: return nil
+        case .email: return "The patient's setup uses this email to find you."
+        case .alerts: return "Alerts are sent when the patient leaves the home area, misses a reminder, has low battery, or stops sharing location."
+        case .pairingCode: return "Enter the 6-digit code shown at the end of the patient's setup."
+        }
+    }
+
+    var rowLabel: String {
+        switch self {
+        case .name: return "Name"
+        case .email: return "Email"
+        case .alerts: return "Alerts"
+        case .pairingCode: return "Patient's pairing code"
+        }
+    }
+
+    func value(for profile: CaretakerProfile) -> String {
+        switch self {
+        case .name:
+            return profile.name
+        case .email:
+            return profile.email
+        case .alerts:
+            var methods: [String] = []
+            if profile.vibrateOnAlert { methods.append("Vibrate") }
+            if profile.notifyOnAlert { methods.append("Notifications") }
+            return methods.isEmpty ? "None" : methods.joined(separator: ", ")
+        case .pairingCode:
+            return profile.patientPairingCode
+        }
+    }
+
+    func isComplete(_ profile: CaretakerProfile) -> Bool {
+        switch self {
+        case .name: return !profile.name.trimmed.isEmpty
+        case .email: return AppStore.isValidEmail(profile.email)
+        case .alerts: return true
+        case .pairingCode: return profile.patientPairingCode.count == 6
+        }
+    }
+}
+
+// MARK: - Step content
+
+struct CaretakerStepContent: View {
+    let step: CaretakerStep
+    @Binding var profile: CaretakerProfile
+
+    var body: some View {
+        switch step {
+        case .name:
+            BigTextField(
+                placeholder: "Full name",
+                text: $profile.name,
+                contentType: .name,
+                capitalization: .words
+            )
+
+        case .email:
+            BigTextField(
+                placeholder: "you@email.com",
+                text: $profile.email,
+                keyboard: .emailAddress,
+                contentType: .emailAddress,
+                capitalization: .never,
+                autocorrect: false
+            )
+
+        case .alerts:
+            VStack(spacing: 16) {
+                ChoiceCard(
+                    title: "Vibrate",
+                    detail: "Your phone vibrates when something changes.",
+                    systemImage: "iphone.radiowaves.left.and.right",
+                    isSelected: profile.vibrateOnAlert
+                ) {
+                    profile.vibrateOnAlert.toggle()
+                }
+                ChoiceCard(
+                    title: "Notifications",
+                    detail: "You get a notification with details.",
+                    systemImage: "bell.fill",
+                    isSelected: profile.notifyOnAlert
+                ) {
+                    profile.notifyOnAlert.toggle()
+                }
+            }
+
+        case .pairingCode:
+            PairingCodeInput(code: $profile.patientPairingCode)
+        }
+    }
+}
+
+struct PairingCodeInput: View {
+    @Binding var code: String
+
+    var body: some View {
+        TextField("000000", text: $code)
+            .font(.system(size: 44, weight: .bold, design: .monospaced))
+            .multilineTextAlignment(.center)
+            .keyboardType(.numberPad)
+            .textContentType(.oneTimeCode)
+            .padding(.vertical, 20)
+            .background(Color(.secondarySystemBackground))
+            .cornerRadius(16)
+            .onChange(of: code) { newValue in
+                let digits = String(newValue.filter { $0.isASCII && $0.isNumber }.prefix(6))
+                if digits != newValue {
+                    code = digits
+                }
+            }
+    }
+}
+
+// MARK: - Setup flow
+
+struct CaretakerSetupFlow: View {
+    @EnvironmentObject private var store: AppStore
+
+    @State private var profile = CaretakerProfile()
+    @State private var index = 0
+
+    private let steps = CaretakerStep.allCases
+
+    var body: some View {
+        Group {
+            if index < steps.count {
+                let step = steps[index]
+                SetupStepLayout(
+                    stepLabel: "Step \(index + 1) of \(steps.count)",
+                    title: step.title,
+                    subtitle: step.subtitle,
+                    buttonTitle: "Continue",
+                    buttonEnabled: step.isComplete(profile),
+                    action: goForward
+                ) {
+                    CaretakerStepContent(step: step, profile: $profile)
+                }
+                .id(step)
+            } else {
+                finishScreen
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarLeading) {
+                BackToolbarButton(action: goBack)
+            }
+        }
+    }
+
+    private var finishScreen: some View {
+        SetupStepLayout(
+            title: "Setup complete",
+            subtitle: "Check your details, then tap Done.",
+            buttonTitle: "Done",
+            action: finish
+        ) {
+            SummaryBox(rows: steps.map { (label: $0.rowLabel, value: $0.value(for: profile)) })
+        }
+    }
+
+    private func goForward() {
+        withAnimation {
+            index += 1
+        }
+    }
+
+    private func goBack() {
+        if index == 0 {
+            store.role = nil
+        } else {
+            withAnimation {
+                index -= 1
+            }
+        }
+    }
+
+    private func finish() {
+        var saved = profile
+        saved.name = saved.name.trimmed
+        saved.email = saved.email.trimmed
+        store.caretakerProfile = saved
+    }
+}
+
+// MARK: - Editing one field later
+
+struct CaretakerFieldEditor: View {
     @EnvironmentObject private var store: AppStore
     @Environment(\.dismiss) private var dismiss
 
-    @State private var draft: CaretakerProfile
+    let step: CaretakerStep
+    @State private var profile: CaretakerProfile
 
-    let isEditing: Bool
-
-    init(profile: CaretakerProfile, isEditing: Bool) {
-        _draft = State(initialValue: profile)
-        self.isEditing = isEditing
+    init(step: CaretakerStep, profile: CaretakerProfile) {
+        self.step = step
+        _profile = State(initialValue: profile)
     }
 
     var body: some View {
-        Form {
-            Section {
-                TextField("Full name", text: $draft.name)
-                    .textContentType(.name)
-                TextField("Email", text: $draft.email)
-                    .keyboardType(.emailAddress)
-                    .textContentType(.emailAddress)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-            } header: {
-                Text("About you")
-            }
-
-            Section {
-                TextField("6-digit pairing code", text: $draft.patientPairingCode)
-                    .keyboardType(.numberPad)
-                    .font(.title3.monospacedDigit())
-            } header: {
-                Text("Sync with patient")
-            } footer: {
-                Text("Enter the pairing code shown on the patient's setup screen.")
-            }
-
-            Section {
-                Toggle("Vibrate on alerts", isOn: $draft.vibrateOnAlert)
-                Toggle("Send notifications", isOn: $draft.notifyOnAlert)
-            } header: {
-                Text("Alerts")
-            } footer: {
-                Text("Alerts are sent when the patient leaves the home area, misses a reminder, has low battery, or stops sharing location.")
-            }
-
-            if let message = validationMessage {
-                Section {
-                    Label(message, systemImage: "exclamationmark.circle")
-                        .foregroundColor(.orange)
-                }
-            }
+        SetupStepLayout(
+            title: step.title,
+            subtitle: step.subtitle,
+            buttonTitle: "Save",
+            buttonEnabled: step.isComplete(profile),
+            action: save
+        ) {
+            CaretakerStepContent(step: step, profile: $profile)
         }
-        .navigationTitle(isEditing ? "Edit Caretaker Setup" : "Caretaker Setup")
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .cancellationAction) {
-                Button(isEditing ? "Cancel" : "Back") {
-                    if isEditing {
-                        dismiss()
-                    } else {
-                        store.role = nil
-                    }
-                }
-            }
-            ToolbarItem(placement: .confirmationAction) {
-                Button("Save") {
-                    save()
-                }
-                .disabled(validationMessage != nil)
-            }
-        }
-        .onChange(of: draft.patientPairingCode) { newValue in
-            let digits = String(newValue.filter { $0.isASCII && $0.isNumber }.prefix(6))
-            if digits != newValue {
-                draft.patientPairingCode = digits
-            }
-        }
-    }
-
-    private var validationMessage: String? {
-        if draft.name.trimmed.isEmpty {
-            return "Enter your name."
-        }
-        if !AppStore.isValidEmail(draft.email) {
-            return "Enter a valid email."
-        }
-        if draft.patientPairingCode.count != 6 {
-            return "Enter the patient's 6-digit pairing code."
-        }
-        return nil
     }
 
     private func save() {
-        var profile = draft
-        profile.name = profile.name.trimmed
-        profile.email = profile.email.trimmed
-        store.caretakerProfile = profile
-        if isEditing {
-            dismiss()
-        }
+        var saved = profile
+        saved.name = saved.name.trimmed
+        saved.email = saved.email.trimmed
+        store.caretakerProfile = saved
+        dismiss()
     }
 }

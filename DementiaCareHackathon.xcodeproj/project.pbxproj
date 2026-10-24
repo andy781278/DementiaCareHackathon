@@ -16,6 +16,7 @@
 		A1D0C0DE0000000000000105 /* PatientSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000104 /* PatientSetupView.swift */; };
 		A1D0C0DE0000000000000107 /* CaretakerSetupView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000106 /* CaretakerSetupView.swift */; };
 		A1D0C0DE0000000000000109 /* HomeViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000108 /* HomeViews.swift */; };
+		A1D0C0DE000000000000010B /* SetupComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE000000000000010A /* SetupComponents.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +30,7 @@
 		A1D0C0DE0000000000000104 /* PatientSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PatientSetupView.swift; sourceTree = "<group>"; };
 		A1D0C0DE0000000000000106 /* CaretakerSetupView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CaretakerSetupView.swift; sourceTree = "<group>"; };
 		A1D0C0DE0000000000000108 /* HomeViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeViews.swift; sourceTree = "<group>"; };
+		A1D0C0DE000000000000010A /* SetupComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SetupComponents.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -63,6 +65,7 @@
 			children = (
 				5F36254B308D5172004C3C5A /* DementiaCareHackathonApp.swift */,
 				5F36254D308D5172004C3C5A /* ContentView.swift */,
+				A1D0C0DE000000000000010A /* SetupComponents.swift */,
 				A1D0C0DE0000000000000100 /* Models.swift */,
 				A1D0C0DE0000000000000102 /* RoleSelectionView.swift */,
 				A1D0C0DE0000000000000104 /* PatientSetupView.swift */,
@@ -153,6 +156,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5F36254E308D5172004C3C5A /* ContentView.swift in Sources */,
+				A1D0C0DE000000000000010B /* SetupComponents.swift in Sources */,
 				A1D0C0DE0000000000000101 /* Models.swift in Sources */,
 				A1D0C0DE0000000000000103 /* RoleSelectionView.swift in Sources */,
 				A1D0C0DE0000000000000105 /* PatientSetupView.swift in Sources */,
