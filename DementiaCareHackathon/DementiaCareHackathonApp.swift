@@ -6,12 +6,65 @@
 //
 
 import SwiftUI
+import UserNotifications
 
 @main
 struct DementiaCareHackathonApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
     var body: some Scene {
         WindowGroup {
             ContentView()
+        }
+    }
+}
+
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        let center = UNUserNotificationCenter.current()
+        center.delegate = self
+
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
+            if let error = error {
+                print("Notification permission error: \(error)")
+                return
+            }
+            if granted {
+                NotificationScheduler.scheduleHi(after: 10)
+            } else {
+                print("Notification permission denied")
+            }
+        }
+        return true
+    }
+
+    // Show the notification even when the app is open in the foreground.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification,
+        withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
+    ) {
+        completionHandler([.banner, .sound, .list])
+    }
+}
+
+enum NotificationScheduler {
+    static func scheduleHi(after seconds: TimeInterval) {
+        let content = UNMutableNotificationContent()
+        content.title = "Hi"
+        content.body = "Hi"
+        content.sound = .default
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)
+        let request = UNNotificationRequest(identifier: "hi", content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request) { error in
+            if let error = error {
+                print("Failed to schedule notification: \(error)")
+            }
         }
     }
 }
