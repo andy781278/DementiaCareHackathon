@@ -37,7 +37,8 @@ enum SoundFiles {
         for byte in text.utf8 {
             hash = (hash &* 33) &+ UInt64(byte)
         }
-        return "tts-\(hash).caf"
+        // "v2" so files made by the earlier speech code are not reused.
+        return "tts-v2-\(hash).caf"
     }
 
     /// The version changes on each new recording, so iOS does not play an older cached file with the same name.
@@ -58,9 +59,22 @@ final class SpeechFileMaker {
         let completion: (Bool) -> Void
     }
 
+    /// Shared between the synthesizer's callback thread and the main thread.
+    private final class WriteState {
+        let lock = NSLock()
+        var file: AVAudioFile?
+        var frames: AVAudioFrameCount = 0
+        var lastBufferAt: Date?
+        var failed = false
+        var ended = false
+    }
+
     private let synthesizer = AVSpeechSynthesizer()
     private var queue: [Job] = []
     private var currentJobID: UUID?
+
+    /// Seconds without new audio after which the speech is treated as finished.
+    private let idleSeconds: TimeInterval = 1.0
 
     /// Calls completion with true when the file exists at url. All calls and completions happen on the main thread.
     func make(text: String, url: URL, completion: @escaping (Bool) -> Void) {
@@ -88,24 +102,27 @@ final class SpeechFileMaker {
         utterance.rate = 0.45
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
 
-        var file: AVAudioFile?
-        var failed = false
+        let state = WriteState()
 
         synthesizer.write(utterance) { [weak self] buffer in
             guard let pcmBuffer = buffer as? AVAudioPCMBuffer else { return }
+            state.lock.lock()
+            defer { state.lock.unlock() }
+            if state.ended { return }
 
+            // Some iOS versions send an empty buffer at the end of the speech.
             if pcmBuffer.frameLength == 0 {
-                // An empty buffer marks the end of the speech.
-                let wroteAudio = file != nil
-                file = nil
+                state.ended = true
+                state.file = nil
+                let success = state.frames > 0 && !state.failed
                 DispatchQueue.main.async {
-                    self?.finish(job: job, jobID: jobID, tempURL: tempURL, success: wroteAudio && !failed)
+                    self?.finish(job: job, jobID: jobID, tempURL: tempURL, success: success)
                 }
                 return
             }
 
             do {
-                if file == nil {
+                if state.file == nil {
                     let settings: [String: Any] = [
                         AVFormatIDKey: kAudioFormatLinearPCM,
                         AVSampleRateKey: pcmBuffer.format.sampleRate,
@@ -114,25 +131,50 @@ final class SpeechFileMaker {
                         AVLinearPCMIsFloatKey: false,
                         AVLinearPCMIsBigEndianKey: false
                     ]
-                    file = try AVAudioFile(
+                    state.file = try AVAudioFile(
                         forWriting: tempURL,
                         settings: settings,
                         commonFormat: pcmBuffer.format.commonFormat,
                         interleaved: pcmBuffer.format.isInterleaved
                     )
                 }
-                try file?.write(from: pcmBuffer)
+                try state.file?.write(from: pcmBuffer)
+                state.frames += pcmBuffer.frameLength
+                state.lastBufferAt = Date()
             } catch {
-                print("Speech file error: \(error)")
-                failed = true
+                print("Speech file write error: \(error)")
+                state.failed = true
             }
         }
 
-        // If the synthesizer never signals the end, give up after 15 seconds.
-        DispatchQueue.main.asyncAfter(deadline: .now() + 15) { [weak self] in
-            guard let self = self, self.currentJobID == jobID else { return }
-            self.synthesizer.stopSpeaking(at: .immediate)
-            self.finish(job: job, jobID: jobID, tempURL: tempURL, success: false)
+        // Other iOS versions never send the empty buffer, so also finish once no audio has arrived for a moment.
+        checkIdle(job: job, jobID: jobID, tempURL: tempURL, state: state, startedAt: Date())
+    }
+
+    private func checkIdle(job: Job, jobID: UUID, tempURL: URL, state: WriteState, startedAt: Date) {
+        guard currentJobID == jobID else { return }
+
+        state.lock.lock()
+        let now = Date()
+        let idle = state.lastBufferAt.map { now.timeIntervalSince($0) > idleSeconds } ?? false
+        let timedOut = now.timeIntervalSince(startedAt) > 15
+        let done = idle || timedOut || state.ended
+        if done {
+            state.ended = true
+            state.file = nil
+        }
+        let success = state.frames > 0 && !state.failed
+        state.lock.unlock()
+
+        if done {
+            if timedOut && !idle {
+                synthesizer.stopSpeaking(at: .immediate)
+            }
+            finish(job: job, jobID: jobID, tempURL: tempURL, success: success)
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                self?.checkIdle(job: job, jobID: jobID, tempURL: tempURL, state: state, startedAt: startedAt)
+            }
         }
     }
 
@@ -149,9 +191,25 @@ final class SpeechFileMaker {
         if !ok {
             try? fileManager.removeItem(at: tempURL)
         }
+        print(ok ? "Spoken sound ready: \(job.url.lastPathComponent)" : "Spoken sound failed for: \(job.text)")
 
         job.completion(ok)
         startNext()
+    }
+}
+
+/// Reads text aloud while the app is open. Used when a spoken sound file could not be made.
+final class ForegroundSpeaker {
+    static let shared = ForegroundSpeaker()
+    private let synthesizer = AVSpeechSynthesizer()
+
+    func speak(_ text: String) {
+        DispatchQueue.main.async {
+            let utterance = AVSpeechUtterance(string: text)
+            utterance.rate = 0.45
+            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+            self.synthesizer.speak(utterance)
+        }
     }
 }
 

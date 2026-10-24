@@ -19,27 +19,26 @@ enum LocalNotifier {
         spokenText: String? = nil
     ) {
         if let soundFile = soundFile, SoundFiles.exists(soundFile) {
-            post(id: id, title: title, body: body, sound: UNNotificationSound(named: UNNotificationSoundName(soundFile)))
+            post(id: id, title: title, body: body, soundFile: soundFile, spokenText: nil)
             return
         }
 
         if let spokenText = spokenText {
             let name = SoundFiles.ttsFileName(for: spokenText)
             SpeechFileMaker.shared.make(text: spokenText, url: SoundFiles.url(name)) { success in
-                let sound = success ? UNNotificationSound(named: UNNotificationSoundName(name)) : UNNotificationSound.default
-                post(id: id, title: title, body: body, sound: sound)
+                post(id: id, title: title, body: body, soundFile: success ? name : nil, spokenText: spokenText)
             }
             return
         }
 
-        post(id: id, title: title, body: body, sound: .default)
+        post(id: id, title: title, body: body, soundFile: nil, spokenText: nil)
     }
 
-    private static func post(id: String, title: String, body: String, sound: UNNotificationSound) {
+    private static func post(id: String, title: String, body: String, soundFile: String?, spokenText: String?) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
-        content.sound = sound
+        NotificationAudio.apply(to: content, soundFile: soundFile, spokenText: spokenText)
 
         // A nil trigger delivers the notification right away.
         let request = UNNotificationRequest(
@@ -52,6 +51,27 @@ enum LocalNotifier {
                 print("Notification error: \(error)")
             }
         }
+    }
+}
+
+/// Sets a notification's sound and records how it should be spoken.
+enum NotificationAudio {
+    static let spokenTextKey = "spokenText"
+    static let hasAudioFileKey = "hasAudioFile"
+
+    /// soundFile is a file in Library/Sounds (a recording or a spoken file). Without one, the default chime is used,
+    /// and if the app is open the spoken text is read aloud instead (see AppDelegate).
+    static func apply(to content: UNMutableNotificationContent, soundFile: String?, spokenText: String?) {
+        if let soundFile = soundFile {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
+        } else {
+            content.sound = .default
+        }
+        var info: [String: Any] = [hasAudioFileKey: soundFile != nil]
+        if let spokenText = spokenText {
+            info[spokenTextKey] = spokenText
+        }
+        content.userInfo = info
     }
 }
 
@@ -71,7 +91,7 @@ enum ReminderScheduler {
 
     /// Replaces all scheduled event reminders on this phone.
     /// The dementia level adds repeats. Each reminder plays the event's recording if it has one,
-    /// otherwise the reminder text read aloud.
+    /// otherwise the event name read aloud.
     static func reschedule(events: [ScheduleEvent], level: DementiaLevel, recordingFiles: [String: String]) {
         DispatchQueue.main.async {
             generation += 1
@@ -89,9 +109,11 @@ enum ReminderScheduler {
 
                     for item in planned {
                         let soundName = item.recordingFile ?? SoundFiles.ttsFileName(for: item.spokenText)
-                        item.content.sound = SoundFiles.exists(soundName)
-                            ? UNNotificationSound(named: UNNotificationSoundName(soundName))
-                            : UNNotificationSound.default
+                        NotificationAudio.apply(
+                            to: item.content,
+                            soundFile: SoundFiles.exists(soundName) ? soundName : nil,
+                            spokenText: item.spokenText
+                        )
 
                         let request = UNNotificationRequest(
                             identifier: item.identifier,
@@ -149,7 +171,7 @@ enum ReminderScheduler {
                     content: content,
                     trigger: UNCalendarNotificationTrigger(dateMatching: components, repeats: event.repeatRule != .never),
                     recordingFile: recordingFile,
-                    spokenText: body
+                    spokenText: event.title
                 ))
             }
         }
