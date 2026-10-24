@@ -6,7 +6,6 @@
 //
 
 import Foundation
-import FirebaseFirestore
 
 enum RepeatRule: String, CaseIterable, Identifiable {
     case never
@@ -92,14 +91,14 @@ struct ScheduleEvent: Identifiable, Equatable {
         }
     }
 
-    var firestoreData: [String: Any] {
+    var firestoreFields: [String: [String: Any]] {
         [
-            "title": title,
-            "date": Timestamp(date: date),
-            "repeat": repeatRule.rawValue,
-            "reminderMinutesBefore": reminderMinutesBefore,
-            "createdBy": createdBy,
-            "hasRecording": hasCustomRecording
+            "title": FirestoreREST.string(title),
+            "date": FirestoreREST.timestamp(date),
+            "repeat": FirestoreREST.string(repeatRule.rawValue),
+            "reminderMinutesBefore": FirestoreREST.int(reminderMinutesBefore),
+            "createdBy": FirestoreREST.string(createdBy),
+            "hasRecording": FirestoreREST.bool(hasCustomRecording)
         ]
     }
 }
@@ -107,10 +106,10 @@ struct ScheduleEvent: Identifiable, Equatable {
 extension ScheduleEvent {
     init?(id: String, data: [String: Any]) {
         guard let title = data["title"] as? String,
-              let timestamp = data["date"] as? Timestamp else { return nil }
+              let date = data["date"] as? Date else { return nil }
         self.id = id
         self.title = title
-        self.date = timestamp.dateValue()
+        self.date = date
         self.repeatRule = (data["repeat"] as? String).flatMap { RepeatRule(rawValue: $0) } ?? .never
         self.reminderMinutesBefore = data["reminderMinutesBefore"] as? Int ?? 0
         self.createdBy = data["createdBy"] as? String ?? ""
@@ -118,73 +117,100 @@ extension ScheduleEvent {
     }
 }
 
-/// Listens to a patient's events in Firestore and adds or deletes events.
+/// Keeps a patient's events in sync with Firestore by checking every few seconds,
+/// and adds or deletes events.
 final class ScheduleStore: ObservableObject {
+    static let pollSeconds: TimeInterval = 4
+
     @Published var events: [ScheduleEvent] = []
     @Published var errorMessage: String?
 
-    private var listener: ListenerRegistration?
+    private let poller = Poller()
     private var pairingCode = ""
+    private var isFetching = false
+    /// While a write is in progress, check results are ignored so they do not undo the local change.
+    private var writesInProgress = 0
 
-    private var collection: CollectionReference? {
-        guard pairingCode.count == 6 else { return nil }
-        return PatientCloud.patients.document(pairingCode).collection("events")
+    private var collectionPath: String {
+        "\(PatientCloud.path(pairingCode: pairingCode))/events"
     }
 
     func listen(pairingCode: String) {
-        if listener != nil && pairingCode == self.pairingCode {
+        if pairingCode == self.pairingCode && !self.pairingCode.isEmpty {
             return
         }
         stop()
+        guard pairingCode.count == 6 else { return }
         self.pairingCode = pairingCode
-        guard let collection = collection else { return }
 
-        listener = collection.addSnapshotListener { [weak self] snapshot, error in
-            guard let self = self else { return }
-            if let error = error {
-                self.errorMessage = error.localizedDescription
-                return
-            }
-            self.errorMessage = nil
-            self.events = snapshot?.documents.compactMap { document in
-                ScheduleEvent(id: document.documentID, data: document.data())
-            } ?? []
+        poller.start(every: ScheduleStore.pollSeconds) { [weak self] in
+            self?.fetch()
         }
     }
 
     func stop() {
-        listener?.remove()
-        listener = nil
+        poller.stop()
         pairingCode = ""
-        events = []
+        isFetching = false
+        if !events.isEmpty {
+            events = []
+        }
+    }
+
+    private func fetch() {
+        guard !isFetching, writesInProgress == 0, pairingCode.count == 6 else { return }
+        isFetching = true
+        let code = pairingCode
+
+        FirestoreREST.list(collectionPath) { [weak self] result in
+            guard let self = self else { return }
+            self.isFetching = false
+            guard code == self.pairingCode, self.writesInProgress == 0 else { return }
+
+            switch result {
+            case .failure(let error):
+                self.errorMessage = error.localizedDescription
+            case .success(let documents):
+                if self.errorMessage != nil {
+                    self.errorMessage = nil
+                }
+                let fetched = documents
+                    .compactMap { ScheduleEvent(id: $0.id, data: $0.fields) }
+                    .sorted { $0.id < $1.id }
+                // Only publish when something changed, so reminders are not rescheduled every check.
+                if fetched != self.events {
+                    self.events = fetched
+                }
+            }
+        }
     }
 
     /// Saves the event, and its voice message if one was recorded.
     func add(_ event: ScheduleEvent, recording: Data?) {
+        guard pairingCode.count == 6 else { return }
         var saved = event
         saved.hasCustomRecording = recording != nil
         if let recording = recording {
             RecordingCloud.upload(pairingCode: pairingCode, id: saved.id, data: recording)
         }
-        collection?.document(saved.id).setData(saved.firestoreData) { error in
-            if let error = error {
-                print("Event save error: \(error)")
-            }
+
+        events = (events + [saved]).sorted { $0.id < $1.id }
+        writesInProgress += 1
+        FirestoreREST.patch("\(collectionPath)/\(saved.id)", fields: saved.firestoreFields) { [weak self] _ in
+            self?.writesInProgress -= 1
         }
     }
 
     func delete(_ event: ScheduleEvent) {
+        guard pairingCode.count == 6 else { return }
         if event.hasCustomRecording {
             RecordingCloud.delete(pairingCode: pairingCode, id: event.id)
         }
-        collection?.document(event.id).delete { error in
-            if let error = error {
-                print("Event delete error: \(error)")
-            }
-        }
-    }
 
-    deinit {
-        listener?.remove()
+        events.removeAll { $0.id == event.id }
+        writesInProgress += 1
+        FirestoreREST.delete("\(collectionPath)/\(event.id)") { [weak self] _ in
+            self?.writesInProgress -= 1
+        }
     }
 }

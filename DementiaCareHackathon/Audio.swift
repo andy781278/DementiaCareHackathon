@@ -12,7 +12,6 @@
 
 import Foundation
 import AVFoundation
-import FirebaseFirestore
 
 // MARK: - Sound file locations
 
@@ -161,73 +160,101 @@ final class SpeechFileMaker {
 enum RecordingCloud {
     static let wanderingID = "wandering"
 
-    static func collection(pairingCode: String) -> CollectionReference {
-        PatientCloud.patients.document(pairingCode).collection("recordings")
+    static func collectionPath(pairingCode: String) -> String {
+        "\(PatientCloud.path(pairingCode: pairingCode))/recordings"
     }
 
-    static func upload(pairingCode: String, id: String, data: Data) {
+    static func upload(pairingCode: String, id: String, data: Data, completion: ((Error?) -> Void)? = nil) {
         guard pairingCode.count == 6 else { return }
-        collection(pairingCode: pairingCode).document(id).setData([
-            "audio": data,
-            "version": UUID().uuidString,
-            "updatedAt": FieldValue.serverTimestamp()
-        ]) { error in
-            if let error = error {
-                print("Recording upload error: \(error)")
-            }
-        }
+        FirestoreREST.patch(
+            "\(collectionPath(pairingCode: pairingCode))/\(id)",
+            fields: [
+                "audio": FirestoreREST.bytes(data),
+                "version": FirestoreREST.string(UUID().uuidString),
+                "updatedAt": FirestoreREST.timestamp(Date())
+            ],
+            completion: completion
+        )
     }
 
-    static func delete(pairingCode: String, id: String) {
+    static func delete(pairingCode: String, id: String, completion: ((Error?) -> Void)? = nil) {
         guard pairingCode.count == 6 else { return }
-        collection(pairingCode: pairingCode).document(id).delete { error in
-            if let error = error {
-                print("Recording delete error: \(error)")
-            }
-        }
+        FirestoreREST.delete("\(collectionPath(pairingCode: pairingCode))/\(id)", completion: completion)
     }
 }
 
 /// Patient phone: copies every recording for this patient into Library/Sounds so notifications can play it.
+/// Checks every few seconds which recordings exist and downloads only new versions.
 final class RecordingSync: ObservableObject {
+    static let pollSeconds: TimeInterval = 8
+
     /// Recording id (event id or "wandering") to sound file name.
     @Published var recordingFiles: [String: String] = [:]
 
-    private var listener: ListenerRegistration?
+    private let poller = Poller()
     private var pairingCode = ""
+    private var isFetching = false
 
     func listen(pairingCode: String) {
-        if listener != nil && pairingCode == self.pairingCode {
+        if pairingCode == self.pairingCode && !self.pairingCode.isEmpty {
             return
         }
-        listener?.remove()
-        listener = nil
-        self.pairingCode = pairingCode
+        poller.stop()
+        isFetching = false
+        self.pairingCode = ""
         guard pairingCode.count == 6 else { return }
+        self.pairingCode = pairingCode
 
-        listener = RecordingCloud.collection(pairingCode: pairingCode)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self = self else { return }
-                if let error = error {
-                    print("Recording sync error: \(error)")
-                    return
-                }
-                guard let documents = snapshot?.documents else { return }
+        poller.start(every: RecordingSync.pollSeconds) { [weak self] in
+            self?.fetch()
+        }
+    }
 
-                var files: [String: String] = [:]
-                for document in documents {
-                    let fields = document.data()
-                    guard let audio = fields["audio"] as? Data else { continue }
-                    let version = fields["version"] as? String ?? "1"
-                    let name = SoundFiles.recordingFileName(id: document.documentID, version: version)
-                    if !SoundFiles.exists(name) {
-                        try? audio.write(to: SoundFiles.url(name), options: .atomic)
-                    }
-                    files[document.documentID] = name
-                }
-                self.removeUnusedRecordingFiles(keeping: Set(files.values))
-                self.recordingFiles = files
+    private func fetch() {
+        guard !isFetching, pairingCode.count == 6 else { return }
+        isFetching = true
+        let code = pairingCode
+
+        // List only the version of each recording, not the audio.
+        FirestoreREST.list(RecordingCloud.collectionPath(pairingCode: code), onlyFields: ["version"]) { [weak self] result in
+            guard let self = self else { return }
+            guard code == self.pairingCode, case .success(let documents) = result else {
+                self.isFetching = false
+                return
             }
+
+            var wanted: [String: String] = [:]
+            for document in documents {
+                let version = document.fields["version"] as? String ?? "1"
+                wanted[document.id] = SoundFiles.recordingFileName(id: document.id, version: version)
+            }
+            let missing = wanted.filter { !SoundFiles.exists($0.value) }
+
+            self.download(Array(missing), pairingCode: code) {
+                self.isFetching = false
+                guard code == self.pairingCode else { return }
+                let available = wanted.filter { SoundFiles.exists($0.value) }
+                self.removeUnusedRecordingFiles(keeping: Set(available.values))
+                if available != self.recordingFiles {
+                    self.recordingFiles = available
+                }
+            }
+        }
+    }
+
+    /// Downloads recordings one at a time and saves each to its sound file name.
+    private func download(_ items: [(key: String, value: String)], pairingCode: String, completion: @escaping () -> Void) {
+        guard let item = items.first else {
+            completion()
+            return
+        }
+        let path = "\(RecordingCloud.collectionPath(pairingCode: pairingCode))/\(item.key)"
+        FirestoreREST.get(path) { [weak self] result in
+            if case .success(let document?) = result, let audio = document.fields["audio"] as? Data {
+                try? audio.write(to: SoundFiles.url(item.value), options: .atomic)
+            }
+            self?.download(Array(items.dropFirst()), pairingCode: pairingCode, completion: completion)
+        }
     }
 
     private func removeUnusedRecordingFiles(keeping names: Set<String>) {
@@ -238,50 +265,48 @@ final class RecordingSync: ObservableObject {
             try? fileManager.removeItem(at: folder.appendingPathComponent(name))
         }
     }
-
-    deinit {
-        listener?.remove()
-    }
 }
 
-/// Watches one saved recording (for example the wandering message) so it can be played or deleted.
+/// Loads one saved recording (for example the wandering message) so it can be played, replaced, or deleted.
 final class SavedRecordingStore: ObservableObject {
     @Published var savedData: Data?
+    @Published var errorMessage: String?
 
     let recordingID: String
-    private var listener: ListenerRegistration?
     private var pairingCode = ""
 
     init(recordingID: String) {
         self.recordingID = recordingID
     }
 
-    func listen(pairingCode: String) {
-        if listener != nil && pairingCode == self.pairingCode {
-            return
-        }
-        listener?.remove()
-        listener = nil
+    func load(pairingCode: String) {
         self.pairingCode = pairingCode
         guard pairingCode.count == 6 else { return }
-
-        listener = RecordingCloud.collection(pairingCode: pairingCode)
-            .document(recordingID)
-            .addSnapshotListener { [weak self] snapshot, _ in
-                self?.savedData = snapshot?.data()?["audio"] as? Data
+        let path = "\(RecordingCloud.collectionPath(pairingCode: pairingCode))/\(recordingID)"
+        FirestoreREST.get(path) { [weak self] result in
+            guard let self = self else { return }
+            switch result {
+            case .success(let document):
+                self.savedData = document?.fields["audio"] as? Data
+                self.errorMessage = nil
+            case .failure(let error):
+                self.errorMessage = error.localizedDescription
             }
+        }
     }
 
     func save(_ data: Data) {
-        RecordingCloud.upload(pairingCode: pairingCode, id: recordingID, data: data)
+        savedData = data
+        RecordingCloud.upload(pairingCode: pairingCode, id: recordingID, data: data) { [weak self] error in
+            self?.errorMessage = error?.localizedDescription
+        }
     }
 
     func delete() {
-        RecordingCloud.delete(pairingCode: pairingCode, id: recordingID)
-    }
-
-    deinit {
-        listener?.remove()
+        savedData = nil
+        RecordingCloud.delete(pairingCode: pairingCode, id: recordingID) { [weak self] error in
+            self?.errorMessage = error?.localizedDescription
+        }
     }
 }
 

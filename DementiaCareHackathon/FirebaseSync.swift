@@ -2,71 +2,57 @@
 //  FirebaseSync.swift
 //  DementiaCareHackathon
 //
-//  Shares patient data through Firestore.
+//  Shares patient data through Firestore (using FirestoreREST).
 //  Each patient is stored at patients/{pairingCode}. Schedule events are at patients/{pairingCode}/events.
 //
 
 import Foundation
 import CoreLocation
 import AudioToolbox
-import FirebaseFirestore
 
 // MARK: - Patient side
 
 enum PatientCloud {
-    static var patients: CollectionReference {
-        Firestore.firestore().collection("patients")
+    static func path(pairingCode: String) -> String {
+        "patients/\(pairingCode)"
     }
 
-    /// Writes the patient's setup to Firestore. Uses merge so location fields are kept.
+    /// Writes the patient's setup to Firestore. Only these fields change; location fields are kept.
     static func upload(_ profile: PatientProfile) {
         guard profile.pairingCode.count == 6 else { return }
 
-        var data: [String: Any] = [
-            "name": profile.name,
-            "homeAddress": profile.displayHomeAddress,
-            "safeRadiusMiles": profile.safeRadiusMiles,
-            "hasCaretaker": profile.hasCaretaker,
-            "caretakerEmail": profile.caretakerEmail.trimmed.lowercased(),
-            "dementiaLevel": profile.dementiaLevel.rawValue,
-            "updatedAt": FieldValue.serverTimestamp()
+        var fields: [String: [String: Any]] = [
+            "name": FirestoreREST.string(profile.name),
+            "homeAddress": FirestoreREST.string(profile.displayHomeAddress),
+            "safeRadiusMiles": FirestoreREST.double(profile.safeRadiusMiles),
+            "hasCaretaker": FirestoreREST.bool(profile.hasCaretaker),
+            "caretakerEmail": FirestoreREST.string(profile.caretakerEmail.trimmed.lowercased()),
+            "dementiaLevel": FirestoreREST.string(profile.dementiaLevel.rawValue),
+            "updatedAt": FirestoreREST.timestamp(Date())
         ]
         if let latitude = profile.homeLatitude, let longitude = profile.homeLongitude {
-            data["homeLocation"] = GeoPoint(latitude: latitude, longitude: longitude)
+            fields["homeLocation"] = FirestoreREST.geoPoint(latitude: latitude, longitude: longitude)
         }
-
-        patients.document(profile.pairingCode).setData(data, merge: true) { error in
-            if let error = error {
-                print("Firestore upload error: \(error)")
-            }
-        }
+        FirestoreREST.patch(path(pairingCode: profile.pairingCode), fields: fields)
     }
 
     static func updateLocation(pairingCode: String, location: CLLocation, isOutside: Bool, distanceMeters: Double) {
         guard pairingCode.count == 6 else { return }
-        let data: [String: Any] = [
-            "lastLocation": GeoPoint(
+        let fields: [String: [String: Any]] = [
+            "lastLocation": FirestoreREST.geoPoint(
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             ),
-            "lastLocationAt": FieldValue.serverTimestamp(),
-            "isOutsideZone": isOutside,
-            "distanceFromHomeMeters": distanceMeters
+            "lastLocationAt": FirestoreREST.timestamp(Date()),
+            "isOutsideZone": FirestoreREST.bool(isOutside),
+            "distanceFromHomeMeters": FirestoreREST.double(distanceMeters)
         ]
-        patients.document(pairingCode).setData(data, merge: true) { error in
-            if let error = error {
-                print("Firestore location error: \(error)")
-            }
-        }
+        FirestoreREST.patch(path(pairingCode: pairingCode), fields: fields)
     }
 
     static func delete(pairingCode: String) {
         guard pairingCode.count == 6 else { return }
-        patients.document(pairingCode).delete { error in
-            if let error = error {
-                print("Firestore delete error: \(error)")
-            }
-        }
+        FirestoreREST.delete(path(pairingCode: pairingCode))
     }
 }
 
@@ -94,7 +80,7 @@ struct RemotePatient: Equatable {
         safeRadiusMiles = data["safeRadiusMiles"] as? Double ?? 0
         caretakerEmail = data["caretakerEmail"] as? String ?? ""
         dementiaLevel = (data["dementiaLevel"] as? String).flatMap { DementiaLevel(rawValue: $0) }
-        updatedAt = (data["updatedAt"] as? Timestamp)?.dateValue()
+        updatedAt = data["updatedAt"] as? Date
 
         if let home = data["homeLocation"] as? GeoPoint {
             homeLatitude = home.latitude
@@ -104,7 +90,7 @@ struct RemotePatient: Equatable {
             lastLatitude = last.latitude
             lastLongitude = last.longitude
         }
-        lastLocationAt = (data["lastLocationAt"] as? Timestamp)?.dateValue()
+        lastLocationAt = data["lastLocationAt"] as? Date
         isOutsideZone = data["isOutsideZone"] as? Bool ?? false
         distanceFromHomeMeters = data["distanceFromHomeMeters"] as? Double
     }
@@ -124,7 +110,7 @@ struct RemotePatient: Equatable {
     }
 }
 
-/// Listens to one patient's record, reports whether the caretaker is connected,
+/// Checks one patient's record every few seconds, reports whether the caretaker is connected,
 /// and alerts the caretaker when the patient leaves or returns to the safe zone.
 final class CaretakerConnection: ObservableObject {
     enum State: Equatable {
@@ -139,14 +125,17 @@ final class CaretakerConnection: ObservableObject {
     @Published var state: State = .idle
     @Published var patient: RemotePatient?
 
-    private var listener: ListenerRegistration?
+    static let pollSeconds: TimeInterval = 3
+
+    private let poller = Poller()
+    private var isFetching = false
     private var currentCode = ""
     private var currentEmail = ""
     private var notifyOnAlert = true
     private var vibrateOnAlert = true
     private var lastKnownOutside: Bool?
 
-    /// Starts listening to the patient in this caretaker's setup.
+    /// Starts checking the patient in this caretaker's setup.
     /// Does not restart if the code and email are unchanged; alert preferences are always updated.
     func connect(profile: CaretakerProfile) {
         notifyOnAlert = profile.notifyOnAlert
@@ -154,7 +143,7 @@ final class CaretakerConnection: ObservableObject {
 
         let code = profile.patientPairingCode
         let email = profile.email.trimmed.lowercased()
-        if listener != nil && code == currentCode && email == currentEmail {
+        if code == currentCode && email == currentEmail && !currentCode.isEmpty {
             return
         }
 
@@ -168,39 +157,55 @@ final class CaretakerConnection: ObservableObject {
         currentEmail = email
         state = .connecting
 
-        listener = PatientCloud.patients
-            .document(code)
-            .addSnapshotListener { [weak self] snapshot, error in
-                guard let self = self else { return }
+        // Check the patient's record every few seconds.
+        poller.start(every: CaretakerConnection.pollSeconds) { [weak self] in
+            self?.fetch()
+        }
+    }
 
-                if let error = error {
-                    self.patient = nil
+    private func fetch() {
+        guard !isFetching, currentCode.count == 6 else { return }
+        isFetching = true
+        let code = currentCode
+
+        FirestoreREST.get(PatientCloud.path(pairingCode: code)) { [weak self] result in
+            guard let self = self else { return }
+            self.isFetching = false
+            // Ignore a response for a code that is no longer in use.
+            guard code == self.currentCode else { return }
+
+            switch result {
+            case .failure(let error):
+                // Keep showing the last known data if a single check fails.
+                if self.patient == nil {
                     self.state = .failed(error.localizedDescription)
-                    return
                 }
 
-                guard let snapshot = snapshot, snapshot.exists, let data = snapshot.data() else {
-                    self.patient = nil
-                    self.state = .notFound
-                    return
-                }
+            case .success(nil):
+                self.patient = nil
+                self.state = .notFound
 
-                let remote = RemotePatient(data: data)
+            case .success(let document?):
+                let remote = RemotePatient(data: document.fields)
                 if remote.caretakerEmail != self.currentEmail {
                     self.patient = nil
                     self.state = .emailMismatch
                     return
                 }
-
-                self.patient = remote
-                self.state = .connected
+                if self.patient != remote {
+                    self.patient = remote
+                }
+                if self.state != .connected {
+                    self.state = .connected
+                }
                 self.handleZoneChange(remote)
             }
+        }
     }
 
     func disconnect() {
-        listener?.remove()
-        listener = nil
+        poller.stop()
+        isFetching = false
         currentCode = ""
         currentEmail = ""
         patient = nil
@@ -235,6 +240,6 @@ final class CaretakerConnection: ObservableObject {
     }
 
     deinit {
-        listener?.remove()
+        poller.stop()
     }
 }

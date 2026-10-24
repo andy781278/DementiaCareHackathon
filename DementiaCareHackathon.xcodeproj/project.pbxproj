@@ -19,8 +19,6 @@
 		A1D0C0DE000000000000010B /* SetupComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE000000000000010A /* SetupComponents.swift */; };
 		A1D0C0DE0000000000000201 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000200 /* GoogleService-Info.plist */; };
 		A1D0C0DE0000000000000203 /* FirebaseSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000202 /* FirebaseSync.swift */; };
-		A1D0C0DE0000000000000213 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = A1D0C0DE0000000000000211 /* FirebaseFirestore */; };
-		A1D0C0DE0000000000000214 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = A1D0C0DE0000000000000212 /* FirebaseCore */; };
 		A1D0C0DE0000000000000301 /* Notifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000300 /* Notifications.swift */; };
 		A1D0C0DE0000000000000303 /* LocationTracker.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000302 /* LocationTracker.swift */; };
 		A1D0C0DE0000000000000305 /* Schedule.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000304 /* Schedule.swift */; };
@@ -29,6 +27,7 @@
 		A1D0C0DE000000000000030B /* MainViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE000000000000030A /* MainViews.swift */; };
 		A1D0C0DE0000000000000401 /* Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000400 /* Audio.swift */; };
 		A1D0C0DE0000000000000403 /* VoiceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000402 /* VoiceViews.swift */; };
+		A1D0C0DE0000000000000501 /* FirestoreREST.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000500 /* FirestoreREST.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +53,7 @@
 		A1D0C0DE00000000000003F0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A1D0C0DE0000000000000400 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
 		A1D0C0DE0000000000000402 /* VoiceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViews.swift; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000500 /* FirestoreREST.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirestoreREST.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -61,8 +61,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1D0C0DE0000000000000213 /* FirebaseFirestore in Frameworks */,
-				A1D0C0DE0000000000000214 /* FirebaseCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -90,6 +88,7 @@
 			children = (
 				5F36254B308D5172004C3C5A /* DementiaCareHackathonApp.swift */,
 				5F36254D308D5172004C3C5A /* ContentView.swift */,
+				A1D0C0DE0000000000000500 /* FirestoreREST.swift */,
 				A1D0C0DE0000000000000400 /* Audio.swift */,
 				A1D0C0DE0000000000000402 /* VoiceViews.swift */,
 				A1D0C0DE0000000000000300 /* Notifications.swift */,
@@ -137,10 +136,6 @@
 			dependencies = (
 			);
 			name = DementiaCareHackathon;
-			packageProductDependencies = (
-				A1D0C0DE0000000000000211 /* FirebaseFirestore */,
-				A1D0C0DE0000000000000212 /* FirebaseCore */,
-			);
 			productName = DementiaCareHackathon;
 			productReference = 5F362548308D5172004C3C5A /* DementiaCareHackathon.app */;
 			productType = "com.apple.product-type.application";
@@ -169,9 +164,6 @@
 				Base,
 			);
 			mainGroup = 5F36253F308D5172004C3C5A;
-			packageReferences = (
-				A1D0C0DE0000000000000210 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
-			);
 			productRefGroup = 5F362549308D5172004C3C5A /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
@@ -200,6 +192,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5F36254E308D5172004C3C5A /* ContentView.swift in Sources */,
+				A1D0C0DE0000000000000501 /* FirestoreREST.swift in Sources */,
 				A1D0C0DE0000000000000401 /* Audio.swift in Sources */,
 				A1D0C0DE0000000000000403 /* VoiceViews.swift in Sources */,
 				A1D0C0DE0000000000000301 /* Notifications.swift in Sources */,
@@ -425,30 +418,7 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCRemoteSwiftPackageReference section */
-		A1D0C0DE0000000000000210 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
-			requirement = {
-				kind = versionRange;
-				maximumVersion = 13.0.0;
-				minimumVersion = 10.0.0;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
 
-/* Begin XCSwiftPackageProductDependency section */
-		A1D0C0DE0000000000000211 /* FirebaseFirestore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1D0C0DE0000000000000210 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseFirestore;
-		};
-		A1D0C0DE0000000000000212 /* FirebaseCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = A1D0C0DE0000000000000210 /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseCore;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5F362540308D5172004C3C5A /* Project object */;
 }

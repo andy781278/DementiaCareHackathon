@@ -127,11 +127,17 @@ struct WanderingMessageView: View {
                     savedData: saved.savedData,
                     onDeleteSaved: { saved.delete() }
                 )
+
+                if let errorMessage = saved.errorMessage {
+                    Label(errorMessage, systemImage: "wifi.exclamationmark")
+                        .font(.body)
+                        .foregroundColor(.red)
+                }
             }
         }
         .navigationBarTitleDisplayMode(.inline)
         .onAppear {
-            saved.listen(pairingCode: pairingCode)
+            saved.load(pairingCode: pairingCode)
         }
         .onDisappear {
             recorder.stopPlaying()
