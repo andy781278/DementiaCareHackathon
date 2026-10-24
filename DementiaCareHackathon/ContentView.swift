@@ -11,27 +11,26 @@ struct ContentView: View {
     @EnvironmentObject private var store: AppStore
 
     var body: some View {
-        NavigationStack {
-            rootView
-        }
-    }
-
-    @ViewBuilder
-    private var rootView: some View {
         if store.role == .patient {
             if let profile = store.patientProfile {
-                PatientHomeView(profile: profile)
+                PatientMainView(profile: profile)
             } else {
-                PatientSetupFlow()
+                NavigationStack {
+                    PatientSetupFlow()
+                }
             }
         } else if store.role == .caretaker {
             if let profile = store.caretakerProfile {
-                CaretakerHomeView(profile: profile)
+                CaretakerMainView(profile: profile)
             } else {
-                CaretakerSetupFlow()
+                NavigationStack {
+                    CaretakerSetupFlow()
+                }
             }
         } else {
-            RoleSelectionView()
+            NavigationStack {
+                RoleSelectionView()
+            }
         }
     }
 }

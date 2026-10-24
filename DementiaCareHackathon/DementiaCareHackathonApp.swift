@@ -39,11 +39,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
                 print("Notification permission error: \(error)")
-                return
-            }
-            if granted {
-                NotificationScheduler.scheduleHi(after: 10)
-            } else {
+            } else if !granted {
                 print("Notification permission denied")
             }
         }
@@ -57,23 +53,5 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         completionHandler([.banner, .sound, .list])
-    }
-}
-
-enum NotificationScheduler {
-    static func scheduleHi(after seconds: TimeInterval) {
-        let content = UNMutableNotificationContent()
-        content.title = "Hi"
-        content.body = "Hi"
-        content.sound = .default
-
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: seconds, repeats: false)
-        let request = UNNotificationRequest(identifier: "hi", content: content, trigger: trigger)
-
-        UNUserNotificationCenter.current().add(request) { error in
-            if let error = error {
-                print("Failed to schedule notification: \(error)")
-            }
-        }
     }
 }

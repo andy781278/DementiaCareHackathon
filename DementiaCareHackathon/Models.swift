@@ -139,16 +139,13 @@ final class AppStore: ObservableObject {
         }
     }
 
-    /// Uploads the patient's setup, and removes the old shared record when it is no longer used.
+    /// Uploads the patient's setup, and removes the old shared record when setup is cleared.
     private func syncPatient(previous: PatientProfile?) {
         if let current = patientProfile {
             PatientCloud.upload(current)
         }
-        if let previous = previous, previous.hasCaretaker {
-            let stillShared = patientProfile.map { $0.hasCaretaker && $0.pairingCode == previous.pairingCode } ?? false
-            if !stillShared {
-                PatientCloud.delete(pairingCode: previous.pairingCode)
-            }
+        if let previous = previous, patientProfile?.pairingCode != previous.pairingCode {
+            PatientCloud.delete(pairingCode: previous.pairingCode)
         }
     }
 
@@ -173,6 +170,14 @@ final class AppStore: ObservableObject {
     static func isValidEmail(_ email: String) -> Bool {
         let pattern = #"^[A-Z0-9a-z._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$"#
         return email.trimmed.range(of: pattern, options: .regularExpression) != nil
+    }
+}
+
+enum Distance {
+    static let metersPerMile = 1609.344
+
+    static func milesText(meters: Double) -> String {
+        String(format: "%.2f miles", meters / metersPerMile)
     }
 }
 
