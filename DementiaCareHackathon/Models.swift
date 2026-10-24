@@ -74,6 +74,13 @@ struct PatientProfile: Codable, Equatable {
 
     var dementiaLevel: DementiaLevel = .mild
 
+    /// Battery percent at or below which the patient is told to charge. Optional so older saved setups still load.
+    var lowBatteryPercent: Int?
+
+    var batteryThreshold: Int {
+        lowBatteryPercent ?? Battery.defaultThreshold
+    }
+
     var isHomeLocated: Bool {
         homeLatitude != nil && homeLongitude != nil
     }
@@ -99,6 +106,33 @@ struct CaretakerProfile: Codable, Equatable {
     var patientPairingCode: String = ""
     var vibrateOnAlert: Bool = true
     var notifyOnAlert: Bool = true
+
+    /// Battery percent of the patient's phone at or below which the caretaker is alerted. Optional so older saved setups still load.
+    var lowBatteryPercent: Int?
+
+    var batteryThreshold: Int {
+        lowBatteryPercent ?? Battery.defaultThreshold
+    }
+}
+
+enum Battery {
+    static let defaultThreshold = 10
+    static let thresholdRange = 5...50
+
+    static func iconName(percent: Int, charging: Bool) -> String {
+        if charging { return "battery.100.bolt" }
+        switch percent {
+        case ..<13: return "battery.0"
+        case ..<38: return "battery.25"
+        case ..<63: return "battery.50"
+        case ..<88: return "battery.75"
+        default: return "battery.100"
+        }
+    }
+
+    static func text(percent: Int, charging: Bool) -> String {
+        charging ? "\(percent)% (charging)" : "\(percent)%"
+    }
 }
 
 // MARK: - Store

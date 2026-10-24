@@ -18,17 +18,20 @@ enum PatientStep: Hashable, CaseIterable {
     case hasCaretaker
     case caretakerEmail
     case dementiaLevel
+    case lowBattery
 
     /// Steps used in the setup flow. The email step is skipped in independent mode.
+    /// The battery alert level is only changed in Settings (default 10%).
     static func steps(for profile: PatientProfile) -> [PatientStep] {
-        if profile.hasCaretaker {
-            return allCases
+        allCases.filter { step in
+            if step == .lowBattery { return false }
+            if step == .caretakerEmail { return profile.hasCaretaker }
+            return true
         }
-        return allCases.filter { $0 != .caretakerEmail }
     }
 
-    /// Rows shown on the patient home screen. The email is edited together with the caretaker choice.
-    static let homeRows: [PatientStep] = [.name, .homeAddress, .distance, .hasCaretaker, .dementiaLevel]
+    /// Rows shown in Settings. The email is edited together with the caretaker choice.
+    static let homeRows: [PatientStep] = [.name, .homeAddress, .distance, .hasCaretaker, .dementiaLevel, .lowBattery]
 
     var title: String {
         switch self {
@@ -38,6 +41,7 @@ enum PatientStep: Hashable, CaseIterable {
         case .hasCaretaker: return "Is there a caretaker?"
         case .caretakerEmail: return "Caretaker's email"
         case .dementiaLevel: return "Dementia level"
+        case .lowBattery: return "Low battery alert"
         }
     }
 
@@ -49,6 +53,7 @@ enum PatientStep: Hashable, CaseIterable {
         case .hasCaretaker: return nil
         case .caretakerEmail: return "Used to connect this phone with the caretaker's app."
         case .dementiaLevel: return "Sets how often reminders repeat."
+        case .lowBattery: return "The patient is told to charge the phone when the battery drops to this level."
         }
     }
 
@@ -60,6 +65,7 @@ enum PatientStep: Hashable, CaseIterable {
         case .hasCaretaker: return "Caretaker"
         case .caretakerEmail: return "Caretaker email"
         case .dementiaLevel: return "Dementia level"
+        case .lowBattery: return "Low battery alert"
         }
     }
 
@@ -71,6 +77,7 @@ enum PatientStep: Hashable, CaseIterable {
         case .hasCaretaker: return profile.hasCaretaker ? profile.caretakerEmail : "None (independent mode)"
         case .caretakerEmail: return profile.caretakerEmail
         case .dementiaLevel: return profile.dementiaLevel.title
+        case .lowBattery: return "At \(profile.batteryThreshold)%"
         }
     }
 
@@ -82,6 +89,7 @@ enum PatientStep: Hashable, CaseIterable {
         case .hasCaretaker: return true
         case .caretakerEmail: return AppStore.isValidEmail(profile.caretakerEmail)
         case .dementiaLevel: return true
+        case .lowBattery: return true
         }
     }
 }
@@ -151,6 +159,12 @@ struct PatientStepContent: View {
                     }
                 }
             }
+
+        case .lowBattery:
+            BatteryThresholdInput(percent: Binding(
+                get: { profile.batteryThreshold },
+                set: { profile.lowBatteryPercent = $0 }
+            ))
         }
     }
 }

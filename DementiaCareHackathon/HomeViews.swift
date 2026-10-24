@@ -30,15 +30,13 @@ struct PatientSettingsView: View {
             }
 
             Section {
-                NavigationLink(destination: WanderingMessageView(pairingCode: profile.pairingCode)) {
-                    SummaryRow(
-                        label: "Wandering voice message",
-                        value: "Record what the patient hears when they leave the safe zone"
-                    )
-                }
+                VoiceMessageLinks(pairingCode: profile.pairingCode)
             } header: {
                 Text("Voice messages")
                     .font(.headline)
+            } footer: {
+                Text("Recordings are saved on the server and play on the patient's phone.")
+                    .font(.body)
             }
 
             Section {
@@ -86,15 +84,13 @@ struct CaretakerSettingsView: View {
             }
 
             Section {
-                NavigationLink(destination: WanderingMessageView(pairingCode: profile.patientPairingCode)) {
-                    SummaryRow(
-                        label: "Wandering voice message",
-                        value: "Record what the patient hears when they leave the safe zone"
-                    )
-                }
+                VoiceMessageLinks(pairingCode: profile.patientPairingCode)
             } header: {
                 Text("Voice messages")
                     .font(.headline)
+            } footer: {
+                Text("Recordings are saved on the server and play on the patient's phone.")
+                    .font(.body)
             }
 
             Section {

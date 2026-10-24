@@ -23,6 +23,7 @@ struct PatientMainView: View {
     @StateObject private var tracker = LocationTracker()
     @StateObject private var schedule = ScheduleStore()
     @StateObject private var recordings = RecordingSync()
+    @StateObject private var battery = BatteryMonitor()
 
     var body: some View {
         TabView {
@@ -33,7 +34,10 @@ struct PatientMainView: View {
                 isOutside: tracker.isOutside,
                 distanceMeters: tracker.distanceFromHome,
                 lastUpdate: tracker.location?.timestamp,
-                waitingMessage: tracker.permissionMessage
+                waitingMessage: tracker.permissionMessage,
+                batteryPercent: battery.percent,
+                batteryCharging: battery.isCharging,
+                lowBatteryThreshold: profile.batteryThreshold
             )
             .tabItem {
                 Label("Map", systemImage: "map.fill")
@@ -47,7 +51,7 @@ struct PatientMainView: View {
             }
 
             NavigationStack {
-                PatientDetailsView(profile: profile, tracker: tracker)
+                PatientDetailsView(profile: profile, tracker: tracker, battery: battery)
             }
             .tabItem {
                 Label("Details", systemImage: "person.text.rectangle")
@@ -62,11 +66,13 @@ struct PatientMainView: View {
         }
         .onAppear {
             tracker.start(profile: profile)
+            battery.start(profile: profile)
             schedule.listen(pairingCode: profile.pairingCode)
             recordings.listen(pairingCode: profile.pairingCode)
         }
         .onChange(of: profile) { newProfile in
             tracker.update(profile: newProfile)
+            battery.update(profile: newProfile)
             schedule.listen(pairingCode: newProfile.pairingCode)
             recordings.listen(pairingCode: newProfile.pairingCode)
             ReminderScheduler.reschedule(
@@ -85,6 +91,7 @@ struct PatientMainView: View {
         }
         .onReceive(recordings.$recordingFiles) { files in
             tracker.wanderingSoundFile = files[RecordingCloud.wanderingID]
+            battery.lowBatterySoundFile = files[RecordingCloud.lowBatteryID]
             ReminderScheduler.reschedule(
                 events: schedule.events,
                 level: profile.dementiaLevel,
@@ -97,6 +104,7 @@ struct PatientMainView: View {
 struct PatientDetailsView: View {
     let profile: PatientProfile
     @ObservedObject var tracker: LocationTracker
+    @ObservedObject var battery: BatteryMonitor
 
     var body: some View {
         List {
@@ -135,6 +143,29 @@ struct PatientDetailsView: View {
                     .font(.headline)
             }
 
+            Section {
+                if let percent = battery.percent {
+                    Label(
+                        Battery.text(percent: percent, charging: battery.isCharging),
+                        systemImage: Battery.iconName(percent: percent, charging: battery.isCharging)
+                    )
+                    .font(.title3.bold())
+                    .foregroundColor(percent <= profile.batteryThreshold && !battery.isCharging ? .red : .primary)
+                } else {
+                    Text("Battery level unknown")
+                        .font(.title3)
+                        .foregroundColor(.secondary)
+                }
+                SummaryRow(label: "Alert at", value: "\(profile.batteryThreshold)%")
+
+                if BatteryMonitor.isSimulator {
+                    batteryTestControls
+                }
+            } header: {
+                Text("Battery")
+                    .font(.headline)
+            }
+
             if profile.hasCaretaker {
                 Section {
                     Text(profile.formattedPairingCode)
@@ -166,6 +197,29 @@ struct PatientDetailsView: View {
         }
         .navigationTitle(profile.name)
     }
+
+    /// The simulator has no battery, so a test level can be set here to try the alert.
+    @ViewBuilder
+    private var batteryTestControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Test battery level (simulator only)")
+                .font(.headline)
+            Slider(
+                value: Binding(
+                    get: { Double(battery.testPercent ?? 50) },
+                    set: { battery.setTestPercent(Int($0.rounded())) }
+                ),
+                in: 0...100,
+                step: 1
+            )
+            if battery.testPercent != nil {
+                Button("Stop test") {
+                    battery.setTestPercent(nil)
+                }
+            }
+        }
+        .padding(.vertical, 4)
+    }
 }
 
 // MARK: - Caretaker
@@ -195,7 +249,7 @@ struct CaretakerMainView: View {
             }
 
             NavigationStack {
-                CaretakerDetailsView(connection: connection)
+                CaretakerDetailsView(connection: connection, batteryThreshold: profile.batteryThreshold)
             }
             .tabItem {
                 Label("Details", systemImage: "person.text.rectangle")
@@ -233,7 +287,10 @@ struct CaretakerMainView: View {
                 isOutside: patient.isOutsideZone,
                 distanceMeters: patient.distanceFromHomeMeters,
                 lastUpdate: patient.lastLocationAt,
-                waitingMessage: "Waiting for \(patient.displayName)'s phone to share its location."
+                waitingMessage: "Waiting for \(patient.displayName)'s phone to share its location.",
+                batteryPercent: patient.batteryPercent,
+                batteryCharging: patient.batteryCharging,
+                lowBatteryThreshold: profile.batteryThreshold
             )
         } else {
             VStack(spacing: 16) {
@@ -255,6 +312,7 @@ struct CaretakerMainView: View {
 
 struct CaretakerDetailsView: View {
     @ObservedObject var connection: CaretakerConnection
+    let batteryThreshold: Int
 
     var body: some View {
         List {
@@ -287,6 +345,19 @@ struct CaretakerDetailsView: View {
                                 value: lastLocationAt.formatted(date: .abbreviated, time: .shortened)
                             )
                         }
+                    }
+
+                    if let percent = patient.batteryPercent {
+                        Label(
+                            "Battery \(Battery.text(percent: percent, charging: patient.batteryCharging))",
+                            systemImage: Battery.iconName(percent: percent, charging: patient.batteryCharging)
+                        )
+                        .font(.title3.bold())
+                        .foregroundColor(percent <= batteryThreshold && !patient.batteryCharging ? .red : .primary)
+                    } else {
+                        Text("Battery level not shared yet")
+                            .font(.title3)
+                            .foregroundColor(.secondary)
                     }
                 } header: {
                     Text("Status")

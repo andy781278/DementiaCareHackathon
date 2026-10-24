@@ -217,6 +217,7 @@ final class ForegroundSpeaker {
 
 enum RecordingCloud {
     static let wanderingID = "wandering"
+    static let lowBatteryID = "lowBattery"
 
     static func collectionPath(pairingCode: String) -> String {
         "\(PatientCloud.path(pairingCode: pairingCode))/recordings"

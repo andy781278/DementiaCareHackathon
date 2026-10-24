@@ -50,6 +50,15 @@ enum PatientCloud {
         FirestoreREST.patch(path(pairingCode: pairingCode), fields: fields)
     }
 
+    static func updateBattery(pairingCode: String, percent: Int, isCharging: Bool) {
+        guard pairingCode.count == 6 else { return }
+        FirestoreREST.patch(path(pairingCode: pairingCode), fields: [
+            "batteryPercent": FirestoreREST.int(percent),
+            "batteryCharging": FirestoreREST.bool(isCharging),
+            "batteryAt": FirestoreREST.timestamp(Date())
+        ])
+    }
+
     static func delete(pairingCode: String) {
         guard pairingCode.count == 6 else { return }
         FirestoreREST.delete(path(pairingCode: pairingCode))
@@ -74,6 +83,10 @@ struct RemotePatient: Equatable {
     var isOutsideZone: Bool
     var distanceFromHomeMeters: Double?
 
+    var batteryPercent: Int?
+    var batteryCharging: Bool
+    var batteryAt: Date?
+
     init(data: [String: Any]) {
         name = data["name"] as? String ?? ""
         homeAddress = data["homeAddress"] as? String ?? ""
@@ -93,6 +106,10 @@ struct RemotePatient: Equatable {
         lastLocationAt = data["lastLocationAt"] as? Date
         isOutsideZone = data["isOutsideZone"] as? Bool ?? false
         distanceFromHomeMeters = data["distanceFromHomeMeters"] as? Double
+
+        batteryPercent = data["batteryPercent"] as? Int
+        batteryCharging = data["batteryCharging"] as? Bool ?? false
+        batteryAt = data["batteryAt"] as? Date
     }
 
     var displayName: String {
@@ -134,12 +151,15 @@ final class CaretakerConnection: ObservableObject {
     private var notifyOnAlert = true
     private var vibrateOnAlert = true
     private var lastKnownOutside: Bool?
+    private var batteryThreshold = Battery.defaultThreshold
+    private var hasAlertedBattery = false
 
     /// Starts checking the patient in this caretaker's setup.
     /// Does not restart if the code and email are unchanged; alert preferences are always updated.
     func connect(profile: CaretakerProfile) {
         notifyOnAlert = profile.notifyOnAlert
         vibrateOnAlert = profile.vibrateOnAlert
+        batteryThreshold = profile.batteryThreshold
 
         let code = profile.patientPairingCode
         let email = profile.email.trimmed.lowercased()
@@ -199,7 +219,23 @@ final class CaretakerConnection: ObservableObject {
                     self.state = .connected
                 }
                 self.handleZoneChange(remote)
+                self.handleBattery(remote)
             }
+        }
+    }
+
+    /// Alerts once when the patient's battery is at or below the caretaker's alert level and not charging.
+    private func handleBattery(_ remote: RemotePatient) {
+        guard let percent = remote.batteryPercent else { return }
+        let isLow = percent <= batteryThreshold && !remote.batteryCharging
+        if isLow && !hasAlertedBattery {
+            hasAlertedBattery = true
+            alert(
+                title: "\(remote.displayName)'s battery is low",
+                body: "\(remote.displayName)'s phone battery is at \(percent)%. Location tracking stops if the phone turns off."
+            )
+        } else if !isLow {
+            hasAlertedBattery = false
         }
     }
 
@@ -210,6 +246,7 @@ final class CaretakerConnection: ObservableObject {
         currentEmail = ""
         patient = nil
         lastKnownOutside = nil
+        hasAlertedBattery = false
         state = .idle
     }
 

@@ -28,6 +28,7 @@
 		A1D0C0DE0000000000000401 /* Audio.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000400 /* Audio.swift */; };
 		A1D0C0DE0000000000000403 /* VoiceViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000402 /* VoiceViews.swift */; };
 		A1D0C0DE0000000000000501 /* FirestoreREST.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000500 /* FirestoreREST.swift */; };
+		A1D0C0DE0000000000000601 /* BatteryMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1D0C0DE0000000000000600 /* BatteryMonitor.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +55,7 @@
 		A1D0C0DE0000000000000400 /* Audio.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Audio.swift; sourceTree = "<group>"; };
 		A1D0C0DE0000000000000402 /* VoiceViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceViews.swift; sourceTree = "<group>"; };
 		A1D0C0DE0000000000000500 /* FirestoreREST.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FirestoreREST.swift; sourceTree = "<group>"; };
+		A1D0C0DE0000000000000600 /* BatteryMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BatteryMonitor.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -88,6 +90,7 @@
 			children = (
 				5F36254B308D5172004C3C5A /* DementiaCareHackathonApp.swift */,
 				5F36254D308D5172004C3C5A /* ContentView.swift */,
+				A1D0C0DE0000000000000600 /* BatteryMonitor.swift */,
 				A1D0C0DE0000000000000500 /* FirestoreREST.swift */,
 				A1D0C0DE0000000000000400 /* Audio.swift */,
 				A1D0C0DE0000000000000402 /* VoiceViews.swift */,
@@ -192,6 +195,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5F36254E308D5172004C3C5A /* ContentView.swift in Sources */,
+				A1D0C0DE0000000000000601 /* BatteryMonitor.swift in Sources */,
 				A1D0C0DE0000000000000501 /* FirestoreREST.swift in Sources */,
 				A1D0C0DE0000000000000401 /* Audio.swift in Sources */,
 				A1D0C0DE0000000000000403 /* VoiceViews.swift in Sources */,

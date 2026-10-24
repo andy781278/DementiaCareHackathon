@@ -223,3 +223,44 @@ struct BackToolbarButton: View {
         }
     }
 }
+
+/// Large percent display with minus and plus buttons, in steps of 5%.
+struct BatteryThresholdInput: View {
+    @Binding var percent: Int
+
+    var body: some View {
+        VStack(spacing: 32) {
+            HStack(spacing: 12) {
+                Image(systemName: Battery.iconName(percent: percent, charging: false))
+                    .font(.system(size: 44))
+                    .foregroundColor(.red)
+                Text("\(percent)%")
+                    .font(.system(size: 56, weight: .bold))
+            }
+            .frame(maxWidth: .infinity)
+
+            HStack(spacing: 24) {
+                stepButton(systemImage: "minus") {
+                    percent = max(Battery.thresholdRange.lowerBound, percent - 5)
+                }
+                .disabled(percent <= Battery.thresholdRange.lowerBound)
+
+                stepButton(systemImage: "plus") {
+                    percent = min(Battery.thresholdRange.upperBound, percent + 5)
+                }
+                .disabled(percent >= Battery.thresholdRange.upperBound)
+            }
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func stepButton(systemImage: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: systemImage)
+                .font(.title.bold())
+                .frame(width: 72, height: 72)
+                .background(Color(.secondarySystemBackground))
+                .clipShape(Circle())
+        }
+    }
+}

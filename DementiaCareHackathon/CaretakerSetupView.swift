@@ -14,6 +14,10 @@ enum CaretakerStep: Hashable, CaseIterable {
     case email
     case alerts
     case pairingCode
+    case lowBattery
+
+    /// Steps used in the setup flow. The battery alert level is only changed in Settings (default 10%).
+    static let setupSteps: [CaretakerStep] = [.name, .email, .alerts, .pairingCode]
 
     var title: String {
         switch self {
@@ -21,6 +25,7 @@ enum CaretakerStep: Hashable, CaseIterable {
         case .email: return "Your email"
         case .alerts: return "How should we alert you?"
         case .pairingCode: return "Patient's pairing code"
+        case .lowBattery: return "Low battery alert"
         }
     }
 
@@ -30,6 +35,7 @@ enum CaretakerStep: Hashable, CaseIterable {
         case .email: return "The patient's setup uses this email to find you."
         case .alerts: return "Alerts are sent when the patient leaves the home area, misses a reminder, has low battery, or stops sharing location."
         case .pairingCode: return "Enter the 6-digit code shown at the end of the patient's setup."
+        case .lowBattery: return "You are alerted when the patient's phone battery drops to this level."
         }
     }
 
@@ -39,6 +45,7 @@ enum CaretakerStep: Hashable, CaseIterable {
         case .email: return "Email"
         case .alerts: return "Alerts"
         case .pairingCode: return "Patient's pairing code"
+        case .lowBattery: return "Low battery alert"
         }
     }
 
@@ -55,6 +62,8 @@ enum CaretakerStep: Hashable, CaseIterable {
             return methods.isEmpty ? "None" : methods.joined(separator: ", ")
         case .pairingCode:
             return profile.patientPairingCode
+        case .lowBattery:
+            return "At \(profile.batteryThreshold)%"
         }
     }
 
@@ -64,6 +73,7 @@ enum CaretakerStep: Hashable, CaseIterable {
         case .email: return AppStore.isValidEmail(profile.email)
         case .alerts: return true
         case .pairingCode: return profile.patientPairingCode.count == 6
+        case .lowBattery: return true
         }
     }
 }
@@ -116,6 +126,12 @@ struct CaretakerStepContent: View {
 
         case .pairingCode:
             PairingCodeInput(code: $profile.patientPairingCode)
+
+        case .lowBattery:
+            BatteryThresholdInput(percent: Binding(
+                get: { profile.batteryThreshold },
+                set: { profile.lowBatteryPercent = $0 }
+            ))
         }
     }
 }
@@ -149,7 +165,7 @@ struct CaretakerSetupFlow: View {
     @State private var profile = CaretakerProfile()
     @State private var index = 0
 
-    private let steps = CaretakerStep.allCases
+    private let steps = CaretakerStep.setupSteps
 
     var body: some View {
         Group {

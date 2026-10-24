@@ -17,6 +17,9 @@ struct MapScreen: View {
     let lastUpdate: Date?
     /// Shown in the status card while there is no patient location yet.
     let waitingMessage: String?
+    let batteryPercent: Int?
+    let batteryCharging: Bool
+    let lowBatteryThreshold: Int
 
     @State private var recenterToken = 0
 
@@ -50,6 +53,8 @@ struct MapScreen: View {
 
     private var statusCard: some View {
         VStack(alignment: .leading, spacing: 8) {
+            batteryLine
+
             if patient == nil {
                 Label("Location not available yet", systemImage: "location.slash")
                     .font(.title2.bold())
@@ -81,6 +86,23 @@ struct MapScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.regularMaterial)
         .cornerRadius(16)
+    }
+
+    @ViewBuilder
+    private var batteryLine: some View {
+        if let percent = batteryPercent {
+            let isLow = percent <= lowBatteryThreshold && !batteryCharging
+            Label(
+                "Battery \(Battery.text(percent: percent, charging: batteryCharging))",
+                systemImage: Battery.iconName(percent: percent, charging: batteryCharging)
+            )
+            .font(.title3.bold())
+            .foregroundColor(isLow ? .red : .primary)
+        } else {
+            Label("Battery unknown", systemImage: "battery.0")
+                .font(.title3)
+                .foregroundColor(.secondary)
+        }
     }
 }
 
