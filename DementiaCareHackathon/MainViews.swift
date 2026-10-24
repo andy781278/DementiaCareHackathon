@@ -22,6 +22,7 @@ struct PatientMainView: View {
 
     @StateObject private var tracker = LocationTracker()
     @StateObject private var schedule = ScheduleStore()
+    @StateObject private var recordings = RecordingSync()
 
     var body: some View {
         TabView {
@@ -62,14 +63,33 @@ struct PatientMainView: View {
         .onAppear {
             tracker.start(profile: profile)
             schedule.listen(pairingCode: profile.pairingCode)
+            recordings.listen(pairingCode: profile.pairingCode)
         }
         .onChange(of: profile) { newProfile in
             tracker.update(profile: newProfile)
             schedule.listen(pairingCode: newProfile.pairingCode)
-            ReminderScheduler.reschedule(events: schedule.events, level: newProfile.dementiaLevel)
+            recordings.listen(pairingCode: newProfile.pairingCode)
+            ReminderScheduler.reschedule(
+                events: schedule.events,
+                level: newProfile.dementiaLevel,
+                recordingFiles: recordings.recordingFiles
+            )
         }
+        // @Published sends the new value before the property changes, so use the value passed in.
         .onReceive(schedule.$events) { events in
-            ReminderScheduler.reschedule(events: events, level: profile.dementiaLevel)
+            ReminderScheduler.reschedule(
+                events: events,
+                level: profile.dementiaLevel,
+                recordingFiles: recordings.recordingFiles
+            )
+        }
+        .onReceive(recordings.$recordingFiles) { files in
+            tracker.wanderingSoundFile = files[RecordingCloud.wanderingID]
+            ReminderScheduler.reschedule(
+                events: schedule.events,
+                level: profile.dementiaLevel,
+                recordingFiles: files
+            )
         }
     }
 }

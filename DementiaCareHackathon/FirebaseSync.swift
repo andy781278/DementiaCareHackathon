@@ -227,7 +227,7 @@ final class CaretakerConnection: ObservableObject {
 
     private func alert(title: String, body: String) {
         if notifyOnAlert {
-            LocalNotifier.send(id: "caretaker-zone", title: title, body: body)
+            LocalNotifier.send(id: "caretaker-zone", title: title, body: body, spokenText: "\(title). \(body)")
         }
         if vibrateOnAlert {
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)

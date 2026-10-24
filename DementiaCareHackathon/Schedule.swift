@@ -56,6 +56,8 @@ struct ScheduleEvent: Identifiable, Equatable {
     var reminderMinutesBefore: Int = 0
     /// "patient" or "caretaker".
     var createdBy: String = ""
+    /// True when a voice message was recorded for this event.
+    var hasCustomRecording: Bool = false
 
     var hasReminder: Bool {
         reminderMinutesBefore >= 0
@@ -96,7 +98,8 @@ struct ScheduleEvent: Identifiable, Equatable {
             "date": Timestamp(date: date),
             "repeat": repeatRule.rawValue,
             "reminderMinutesBefore": reminderMinutesBefore,
-            "createdBy": createdBy
+            "createdBy": createdBy,
+            "hasRecording": hasCustomRecording
         ]
     }
 }
@@ -111,6 +114,7 @@ extension ScheduleEvent {
         self.repeatRule = (data["repeat"] as? String).flatMap { RepeatRule(rawValue: $0) } ?? .never
         self.reminderMinutesBefore = data["reminderMinutesBefore"] as? Int ?? 0
         self.createdBy = data["createdBy"] as? String ?? ""
+        self.hasCustomRecording = data["hasRecording"] as? Bool ?? false
     }
 }
 
@@ -155,8 +159,14 @@ final class ScheduleStore: ObservableObject {
         events = []
     }
 
-    func add(_ event: ScheduleEvent) {
-        collection?.document(event.id).setData(event.firestoreData) { error in
+    /// Saves the event, and its voice message if one was recorded.
+    func add(_ event: ScheduleEvent, recording: Data?) {
+        var saved = event
+        saved.hasCustomRecording = recording != nil
+        if let recording = recording {
+            RecordingCloud.upload(pairingCode: pairingCode, id: saved.id, data: recording)
+        }
+        collection?.document(saved.id).setData(saved.firestoreData) { error in
             if let error = error {
                 print("Event save error: \(error)")
             }
@@ -164,6 +174,9 @@ final class ScheduleStore: ObservableObject {
     }
 
     func delete(_ event: ScheduleEvent) {
+        if event.hasCustomRecording {
+            RecordingCloud.delete(pairingCode: pairingCode, id: event.id)
+        }
         collection?.document(event.id).delete { error in
             if let error = error {
                 print("Event delete error: \(error)")

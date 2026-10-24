@@ -52,10 +52,10 @@ struct ScheduleView: View {
             }
         }
         .sheet(isPresented: $showingAdd) {
-            EventEditorView(day: selectedDay) { event in
+            EventEditorView(day: selectedDay) { event, recording in
                 var saved = event
                 saved.createdBy = createdBy
-                schedule.add(saved)
+                schedule.add(saved, recording: recording)
             }
         }
     }
@@ -226,6 +226,9 @@ struct EventRow: View {
         if event.repeatRule != .never {
             parts.append(event.repeatRule.title)
         }
+        if event.hasCustomRecording {
+            parts.append("Voice message")
+        }
         if event.createdBy == "caretaker" {
             parts.append("Added by caretaker")
         } else if event.createdBy == "patient" {
@@ -242,10 +245,11 @@ struct EventEditorView: View {
     @State private var date: Date
     @State private var repeatRule: RepeatRule = .never
     @State private var reminder: ReminderOption = .atTime
+    @StateObject private var recorder = VoiceRecorder()
 
-    private let onSave: (ScheduleEvent) -> Void
+    private let onSave: (ScheduleEvent, Data?) -> Void
 
-    init(day: Date, onSave: @escaping (ScheduleEvent) -> Void) {
+    init(day: Date, onSave: @escaping (ScheduleEvent, Data?) -> Void) {
         let calendar = Calendar.current
         var start = calendar.date(bySettingHour: 9, minute: 0, second: 0, of: day) ?? day
         // For today, start at the next full hour if 9 AM has already passed.
@@ -289,7 +293,18 @@ struct EventEditorView: View {
                 } header: {
                     Text("Reminder")
                 } footer: {
-                    Text("The reminder plays on the patient's phone. It repeats more often for higher dementia levels.")
+                    Text("The reminder plays on the patient's phone and is read aloud. It repeats more often for higher dementia levels.")
+                }
+
+                if reminder != .none {
+                    Section {
+                        VoiceMessageControls(recorder: recorder)
+                            .padding(.vertical, 4)
+                    } header: {
+                        Text("Voice message (optional)")
+                    } footer: {
+                        Text("If you record a message, the patient hears it instead of the reminder being read aloud. Up to \(Int(VoiceRecorder.maxSeconds)) seconds.")
+                    }
                 }
             }
             .navigationTitle("New Event")
@@ -297,6 +312,8 @@ struct EventEditorView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") {
+                        recorder.stopRecording()
+                        recorder.stopPlaying()
                         dismiss()
                     }
                 }
@@ -308,10 +325,11 @@ struct EventEditorView: View {
                             repeatRule: repeatRule,
                             reminderMinutesBefore: reminder.rawValue
                         )
-                        onSave(event)
+                        recorder.stopPlaying()
+                        onSave(event, reminder == .none ? nil : recorder.recordedData)
                         dismiss()
                     }
-                    .disabled(title.trimmed.isEmpty)
+                    .disabled(title.trimmed.isEmpty || recorder.isRecording)
                 }
             }
         }

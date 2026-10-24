@@ -8,7 +8,6 @@
 
 import Foundation
 import CoreLocation
-import AVFoundation
 import UIKit
 
 final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelegate {
@@ -17,8 +16,12 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var isOutside = false
     @Published var distanceFromHome: CLLocationDistance?
 
+    /// Sound file of a recorded wandering message, if one was recorded.
+    var wanderingSoundFile: String?
+
+    static let wanderingMessage = "You are far from home. Please turn around and go back home."
+
     private let manager = CLLocationManager()
-    private let speech = AVSpeechSynthesizer()
     private var profile: PatientProfile?
     private var hasEvaluated = false
     private var lastUploadAt: Date?
@@ -37,6 +40,11 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
 
     func start(profile: PatientProfile) {
         self.profile = profile
+        // Make the spoken warning ahead of time so the alert does not wait for it.
+        SpeechFileMaker.shared.make(
+            text: LocationTracker.wanderingMessage,
+            url: SoundFiles.url(SoundFiles.ttsFileName(for: LocationTracker.wanderingMessage))
+        ) { _ in }
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
@@ -143,15 +151,14 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
         }
     }
 
+    /// Plays the recorded wandering message if there is one, otherwise the warning read aloud.
     private func warnPatient() {
-        let message = "You are far from home. Please turn around and go back home."
-        LocalNotifier.send(id: "zone-exit", title: "Please turn around", body: message)
-
-        // Speak the warning out loud when the app is open.
-        if UIApplication.shared.applicationState == .active {
-            let utterance = AVSpeechUtterance(string: message)
-            utterance.rate = 0.45
-            speech.speak(utterance)
-        }
+        LocalNotifier.send(
+            id: "zone-exit",
+            title: "Please turn around",
+            body: LocationTracker.wanderingMessage,
+            soundFile: wanderingSoundFile,
+            spokenText: LocationTracker.wanderingMessage
+        )
     }
 }
