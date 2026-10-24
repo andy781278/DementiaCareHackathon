@@ -109,7 +109,10 @@ final class AppStore: ObservableObject {
         didSet { save() }
     }
     @Published var patientProfile: PatientProfile? {
-        didSet { save() }
+        didSet {
+            save()
+            syncPatient(previous: oldValue)
+        }
     }
     @Published var caretakerProfile: CaretakerProfile? {
         didSet { save() }
@@ -129,6 +132,23 @@ final class AppStore: ObservableObject {
             role = state.role
             patientProfile = state.patientProfile
             caretakerProfile = state.caretakerProfile
+        }
+        // Make sure the shared record exists, e.g. for a setup saved before syncing was added.
+        if role == .patient, let profile = patientProfile {
+            PatientCloud.upload(profile)
+        }
+    }
+
+    /// Uploads the patient's setup, and removes the old shared record when it is no longer used.
+    private func syncPatient(previous: PatientProfile?) {
+        if let current = patientProfile {
+            PatientCloud.upload(current)
+        }
+        if let previous = previous, previous.hasCaretaker {
+            let stillShared = patientProfile.map { $0.hasCaretaker && $0.pairingCode == previous.pairingCode } ?? false
+            if !stillShared {
+                PatientCloud.delete(pairingCode: previous.pairingCode)
+            }
         }
     }
 

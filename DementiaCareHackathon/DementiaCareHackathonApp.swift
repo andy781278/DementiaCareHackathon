@@ -7,11 +7,18 @@
 
 import SwiftUI
 import UserNotifications
+import FirebaseCore
 
 @main
 struct DementiaCareHackathonApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    @StateObject private var store = AppStore()
+    @StateObject private var store: AppStore
+
+    init() {
+        // Firebase must be configured before AppStore is created, because AppStore uploads on launch.
+        FirebaseApp.configure()
+        _store = StateObject(wrappedValue: AppStore())
+    }
 
     var body: some Scene {
         WindowGroup {

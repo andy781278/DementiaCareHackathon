@@ -70,12 +70,13 @@ struct CaretakerHomeView: View {
     @EnvironmentObject private var store: AppStore
     let profile: CaretakerProfile
 
+    @StateObject private var connection = CaretakerConnection()
     @State private var confirmingReset = false
 
     var body: some View {
         List {
             Section {
-                SummaryRow(label: "Status", value: "Not connected")
+                patientStatus
             } header: {
                 Text("Patient")
                     .font(.headline)
@@ -105,14 +106,69 @@ struct CaretakerHomeView: View {
             }
         }
         .navigationTitle(profile.name)
+        .onAppear {
+            connection.connect(pairingCode: profile.patientPairingCode, caretakerEmail: profile.email)
+        }
+        .onChange(of: profile) { newProfile in
+            connection.connect(pairingCode: newProfile.patientPairingCode, caretakerEmail: newProfile.email)
+        }
         .confirmationDialog(
             "Change role? This clears all setup on this phone.",
             isPresented: $confirmingReset,
             titleVisibility: .visible
         ) {
             Button("Clear setup", role: .destructive) {
+                connection.disconnect()
                 store.reset()
             }
+        }
+    }
+
+    @ViewBuilder
+    private var patientStatus: some View {
+        switch connection.state {
+        case .idle, .connecting:
+            HStack(spacing: 12) {
+                ProgressView()
+                Text("Connecting…")
+                    .font(.title3)
+            }
+            .padding(.vertical, 4)
+
+        case .connected:
+            Label("Connected", systemImage: "checkmark.circle.fill")
+                .font(.title3.bold())
+                .foregroundColor(.green)
+            if let patient = connection.patient {
+                SummaryRow(label: "Name", value: patient.name)
+                SummaryRow(label: "Home address", value: patient.homeAddress)
+                SummaryRow(label: "Alert distance", value: String(format: "%.1f miles", patient.safeRadiusMiles))
+                SummaryRow(label: "Dementia level", value: patient.dementiaLevel?.title ?? "Unknown")
+                if let updatedAt = patient.updatedAt {
+                    SummaryRow(label: "Last update", value: updatedAt.formatted(date: .abbreviated, time: .shortened))
+                }
+            }
+
+        case .notFound:
+            Label(
+                "No patient found with this code. Check the code shown on the patient's phone.",
+                systemImage: "xmark.circle.fill"
+            )
+            .font(.title3)
+            .foregroundColor(.red)
+
+        case .emailMismatch:
+            Label(
+                "This patient listed a different caretaker email. Your email must match the one entered on the patient's phone.",
+                systemImage: "exclamationmark.triangle.fill"
+            )
+            .font(.title3)
+            .foregroundColor(.orange)
+
+        case .failed(let message):
+            Label("Could not connect: \(message)", systemImage: "wifi.exclamationmark")
+                .font(.title3)
+                .foregroundColor(.red)
         }
     }
 }
