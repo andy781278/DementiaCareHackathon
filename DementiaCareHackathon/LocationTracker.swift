@@ -17,6 +17,13 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var distanceFromHome: CLLocationDistance?
     /// When the patient left the safe zone, or nil while inside.
     @Published var outsideSince: Date?
+    /// The highest wander alert tier already given during the current time outside (0 = none).
+    @Published var alertedTier = 0
+    /// Test time outside set from the caretaker phone, or nil when the real time is used.
+    @Published var testMinutesOutside: Double?
+
+    private let tierPoller = Poller()
+    private var isFetchingTest = false
 
     /// Sound file of a recorded wandering message, if one was recorded.
     var wanderingSoundFile: String?
@@ -47,6 +54,12 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
             text: LocationTracker.wanderingMessage,
             url: SoundFiles.url(SoundFiles.ttsFileName(for: LocationTracker.wanderingMessage))
         ) { _ in }
+        // Every few seconds: check for a test time set by the caretaker, and give later alerts as time passes.
+        tierPoller.start(every: 3) { [weak self] in
+            self?.fetchTestMinutes()
+            self?.checkTier()
+        }
+
         switch manager.authorizationStatus {
         case .notDetermined:
             manager.requestWhenInUseAuthorization()
@@ -142,7 +155,15 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
         }
 
         if nowOutside && (!wasOutside || firstCheck) {
-            warnPatient()
+            alertedTier = 1
+            warnPatient(tier: 1)
+        } else if !nowOutside && (wasOutside || firstCheck) {
+            alertedTier = 0
+            // Clear a test time once the patient is back inside.
+            if testMinutesOutside != nil {
+                testMinutesOutside = nil
+                PatientCloud.setTestMinutesOutside(pairingCode: profile.pairingCode, minutes: nil)
+            }
         }
 
         let stateChanged = nowOutside != wasOutside || firstCheck
@@ -159,14 +180,62 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
         }
     }
 
-    /// Plays the recorded wandering message if there is one, otherwise the warning read aloud.
-    private func warnPatient() {
+    private func fetchTestMinutes() {
+        guard !isFetchingTest, let code = profile?.pairingCode, code.count == 6 else { return }
+        isFetchingTest = true
+        FirestoreREST.get(PatientCloud.path(pairingCode: code)) { [weak self] result in
+            guard let self = self else { return }
+            self.isFetchingTest = false
+            guard case .success(let document) = result else { return }
+            let value = (document?.fields["testMinutesOutside"] as? Double).flatMap { $0 >= 0 ? $0 : nil }
+            if value != self.testMinutesOutside {
+                self.testMinutesOutside = value
+                self.checkTier()
+            }
+        }
+    }
+
+    /// Gives the 10-minute and 30-minute alerts while the patient stays outside.
+    private func checkTier() {
+        guard isOutside else { return }
+        let realMinutes = outsideSince.map { max(0, Date().timeIntervalSince($0) / 60) } ?? 0
+        let minutes = testMinutesOutside ?? realMinutes
+        let tier = WanderTier.tier(forMinutesOutside: minutes)
+        guard tier > alertedTier else { return }
+        alertedTier = tier
+        warnPatient(tier: tier)
+    }
+
+    /// Plays the recorded wandering message if there is one, otherwise the warning for this tier read aloud.
+    private func warnPatient(tier: Int) {
+        let hasCaretaker = profile?.hasCaretaker ?? false
+        let title: String
+        let message: String
+        let vibration: AlertVibration
+        switch tier {
+        case 1:
+            title = "Please turn around"
+            message = LocationTracker.wanderingMessage
+            vibration = .none
+        case 2:
+            title = "You have been away for 10 minutes"
+            message = "You have been away from home for 10 minutes. Please turn around and go back home."
+            vibration = .short
+        default:
+            title = "You have been away for 30 minutes"
+            message = hasCaretaker
+                ? "You have been away from home for 30 minutes. Please stay where you are. Your caretaker has been told where you are."
+                : "You have been away from home for 30 minutes. Please go back home, or ask someone nearby for help."
+            vibration = .long
+        }
+
         LocalNotifier.send(
-            id: "zone-exit",
-            title: "Please turn around",
-            body: LocationTracker.wanderingMessage,
+            id: "zone-exit-\(tier)",
+            title: title,
+            body: message,
             soundFile: wanderingSoundFile,
-            spokenText: LocationTracker.wanderingMessage
+            spokenText: message
         )
+        vibration.play()
     }
 }

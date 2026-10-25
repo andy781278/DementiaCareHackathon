@@ -13,6 +13,41 @@
 
 import Foundation
 import UserNotifications
+import AudioToolbox
+
+/// Vibration patterns for alerts. The simulator does not vibrate.
+enum AlertVibration {
+    case none
+    /// A few pulses.
+    case short
+    /// Pulses for about 10 seconds.
+    case long
+
+    private static var timer: Timer?
+
+    func play() {
+        let pulses: Int
+        switch self {
+        case .none: return
+        case .short: pulses = 3
+        case .long: pulses = 13 // about 10 seconds at 0.8 seconds apart
+        }
+
+        DispatchQueue.main.async {
+            AlertVibration.timer?.invalidate()
+            var remaining = pulses - 1
+            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            AlertVibration.timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { timer in
+                guard remaining > 0 else {
+                    timer.invalidate()
+                    return
+                }
+                remaining -= 1
+                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            }
+        }
+    }
+}
 
 /// Sets a notification's sound and stores what to play while the app is open.
 enum NotificationAudio {

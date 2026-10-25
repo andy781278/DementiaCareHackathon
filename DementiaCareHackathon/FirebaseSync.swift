@@ -66,6 +66,14 @@ enum PatientCloud {
         ])
     }
 
+    /// Sets a test time outside the safe zone, used by both phones instead of the real time. nil clears it.
+    static func setTestMinutesOutside(pairingCode: String, minutes: Double?) {
+        guard pairingCode.count == 6 else { return }
+        FirestoreREST.patch(path(pairingCode: pairingCode), fields: [
+            "testMinutesOutside": FirestoreREST.double(minutes ?? -1)
+        ])
+    }
+
     /// Sets a test battery level that the patient phone uses instead of its real battery. nil clears it.
     static func setTestBattery(pairingCode: String, percent: Int?) {
         guard pairingCode.count == 6 else { return }
@@ -105,6 +113,8 @@ struct RemotePatient: Equatable {
     var batteryAt: Date?
     /// Test battery level set from the caretaker phone, or nil when the real battery is used.
     var testBatteryPercent: Int?
+    /// Test time outside set from the caretaker phone, or nil when the real time is used.
+    var testMinutesOutside: Double?
 
     init(data: [String: Any]) {
         name = data["name"] as? String ?? ""
@@ -131,6 +141,7 @@ struct RemotePatient: Equatable {
         batteryCharging = data["batteryCharging"] as? Bool ?? false
         batteryAt = data["batteryAt"] as? Date
         testBatteryPercent = (data["testBatteryPercent"] as? Int).flatMap { $0 >= 0 ? $0 : nil }
+        testMinutesOutside = (data["testMinutesOutside"] as? Double).flatMap { $0 >= 0 ? $0 : nil }
     }
 
     var displayName: String {
@@ -178,7 +189,6 @@ final class CaretakerConnection: ObservableObject {
     /// The highest wander alert tier already sent during the current time outside (0 = none).
     @Published var alertedTier = 0
 
-    private var vibrationTimer: Timer?
     private var batteryThreshold = Battery.defaultThreshold
     private var hasAlertedBattery = false
 
@@ -281,7 +291,6 @@ final class CaretakerConnection: ObservableObject {
         alertedTier = 0
         minutesOutside = nil
         testMinutesOutside = nil
-        vibrationTimer?.invalidate()
         hasAlertedBattery = false
         state = .idle
     }
@@ -289,6 +298,7 @@ final class CaretakerConnection: ObservableObject {
     /// Sets (or clears with nil) a test time outside, to try the alert tiers without waiting.
     func setTestMinutesOutside(_ minutes: Double?) {
         testMinutesOutside = minutes
+        PatientCloud.setTestMinutesOutside(pairingCode: currentCode, minutes: minutes)
         if let patient = patient {
             handleZoneChange(patient)
         }
@@ -317,7 +327,7 @@ final class CaretakerConnection: ObservableObject {
         }
 
         let realMinutes = remote.outsideSince.map { max(0, Date().timeIntervalSince($0) / 60) } ?? 0
-        let minutes = testMinutesOutside ?? realMinutes
+        let minutes = testMinutesOutside ?? remote.testMinutesOutside ?? realMinutes
         minutesOutside = minutes
 
         let tier = WanderTier.tier(forMinutesOutside: minutes)
@@ -352,47 +362,17 @@ final class CaretakerConnection: ObservableObject {
         }
     }
 
-    enum Vibration {
-        case none
-        /// A few pulses.
-        case short
-        /// Pulses for 10 seconds.
-        case long
-    }
-
-    private func alert(title: String, body: String, vibration: Vibration = .short) {
+    private func alert(title: String, body: String, vibration: AlertVibration = .short) {
         if notifyOnAlert {
             LocalNotifier.send(id: "caretaker-alert", title: title, body: body, spokenText: "\(title). \(body)")
         }
         if vibrateOnAlert {
-            vibrate(vibration)
-        }
-    }
-
-    private func vibrate(_ vibration: Vibration) {
-        let pulses: Int
-        switch vibration {
-        case .none: return
-        case .short: pulses = 3
-        case .long: pulses = 13 // about 10 seconds at 0.8 seconds apart
-        }
-
-        vibrationTimer?.invalidate()
-        var remaining = pulses - 1
-        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-        vibrationTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { timer in
-            guard remaining > 0 else {
-                timer.invalidate()
-                return
-            }
-            remaining -= 1
-            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            vibration.play()
         }
     }
 
     deinit {
         poller.stop()
-        vibrationTimer?.invalidate()
     }
 }
 
