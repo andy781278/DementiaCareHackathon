@@ -170,6 +170,7 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
                 markedSafe = false
                 PatientCloud.setMarkedSafe(pairingCode: profile.pairingCode, safe: false)
             }
+            UrgentRepeat.cancel(id: "zone-exit-3")
         }
 
         let stateChanged = nowOutside != wasOutside || firstCheck
@@ -197,6 +198,9 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
             let safe = document?.fields["markedSafe"] as? Bool ?? false
             if safe != self.markedSafe {
                 self.markedSafe = safe
+                if safe {
+                    UrgentRepeat.cancel(id: "zone-exit-3")
+                }
             }
             if value != self.testMinutesOutside {
                 self.testMinutesOutside = value
@@ -218,6 +222,7 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
     }
 
     /// Plays the recorded wandering message if there is one, otherwise the warning for this tier read aloud.
+    /// The wording and vibration get more urgent with each tier.
     private func warnPatient(tier: Int) {
         let hasCaretaker = profile?.hasCaretaker ?? false
         let title: String
@@ -225,28 +230,32 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
         let vibration: AlertVibration
         switch tier {
         case 1:
-            title = "Please turn around"
+            title = "⚠️ Please turn around"
             message = LocationTracker.wanderingMessage
             vibration = .none
         case 2:
-            title = "You have been away for 10 minutes"
-            message = "You have been away from home for 10 minutes. Please turn around and go back home."
+            title = "⚠️⚠️ You have been away for 10 minutes"
+            message = "You are still far from home after 10 minutes. Please turn around now and go back home."
             vibration = .short
         default:
-            title = "You have been away for 30 minutes"
+            title = "🚨 You have been away for 30 minutes"
             message = hasCaretaker
-                ? "You have been away from home for 30 minutes. Please stay where you are. Your caretaker has been told where you are."
-                : "You have been away from home for 30 minutes. Please go back home, or ask someone nearby for help."
+                ? "Please stop and stay where you are. You have been away from home for 30 minutes. Your caretaker has been alerted and knows where you are."
+                : "Please stop and ask someone nearby for help. You have been away from home for 30 minutes."
             vibration = .long
         }
 
+        let id = "zone-exit-\(tier)"
         LocalNotifier.send(
-            id: "zone-exit-\(tier)",
+            id: id,
             title: title,
             body: message,
             soundFile: wanderingSoundFile,
-            spokenText: message
+            spokenText: message.withoutEmoji
         )
         vibration.play()
+        if tier >= 3 && UIApplication.shared.applicationState != .active {
+            UrgentRepeat.schedule(id: id, title: title, body: "🚨 Please stop and stay where you are.")
+        }
     }
 }

@@ -18,56 +18,93 @@ import AudioToolbox
 /// Vibration patterns for alerts. The simulator does not vibrate.
 enum AlertVibration {
     case none
-    /// A few pulses.
+    /// About 2.5 seconds of pulses.
     case short
-    /// Pulses for about 10 seconds.
+    /// About 10 seconds of pulses.
     case long
 
-    private static var timer: Timer?
+    /// When the current vibration should stop. Main thread only.
+    private static var endTime: Date?
+
+    var duration: TimeInterval {
+        switch self {
+        case .none: return 0
+        case .short: return 2.5
+        case .long: return 10
+        }
+    }
 
     func play() {
-        let pulses: Int
-        switch self {
-        case .none: return
-        case .short: pulses = 3
-        case .long: pulses = 13 // about 10 seconds at 0.8 seconds apart
-        }
-
+        guard duration > 0 else { return }
+        let duration = self.duration
         DispatchQueue.main.async {
-            AlertVibration.timer?.invalidate()
-            var remaining = pulses - 1
-            AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
-            AlertVibration.timer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { timer in
-                guard remaining > 0 else {
-                    timer.invalidate()
-                    return
-                }
-                remaining -= 1
-                AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+            let alreadyRunning = AlertVibration.endTime != nil
+            AlertVibration.endTime = Date().addingTimeInterval(duration)
+            if !alreadyRunning {
+                AlertVibration.pulse()
+            }
+        }
+    }
+
+    /// Starts the next pulse only after the previous one finished. Back-to-back vibration calls made on a
+    /// timer can be dropped by iOS, which is why the earlier version did not reach 10 seconds.
+    private static func pulse() {
+        guard let end = endTime, Date() < end else {
+            endTime = nil
+            return
+        }
+        AudioServicesPlaySystemSoundWithCompletion(kSystemSoundID_Vibrate) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                pulse()
             }
         }
     }
 }
 
-/// Sets a notification's sound and stores what to play while the app is open.
-enum NotificationAudio {
-    static let spokenTextKey = "spokenText"
-    static let soundFileKey = "soundFile"
+/// Repeats an urgent notification a few times, a couple of seconds apart, so the phone keeps buzzing
+/// when the app is in the background (where the app itself cannot vibrate the phone).
+enum UrgentRepeat {
+    static let count = 5
+    static let intervalSeconds: TimeInterval = 2
 
-    static func apply(to content: UNMutableNotificationContent, soundFile: String?, spokenText: String?) {
-        if let soundFile = soundFile {
-            content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
-        } else {
+    static func identifiers(id: String) -> [String] {
+        (1...count).map { "\(id)-repeat-\($0)" }
+    }
+
+    static func schedule(id: String, title: String, body: String) {
+        let center = UNUserNotificationCenter.current()
+        for (index, identifier) in identifiers(id: id).enumerated() {
+            let content = UNMutableNotificationContent()
+            content.title = title
+            content.body = body
             content.sound = .default
+            content.threadIdentifier = id
+            let trigger = UNTimeIntervalNotificationTrigger(
+                timeInterval: intervalSeconds * Double(index + 1),
+                repeats: false
+            )
+            center.add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
         }
-        var info: [String: Any] = [:]
-        if let soundFile = soundFile {
-            info[soundFileKey] = soundFile
+    }
+
+    static func cancel(id: String) {
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: identifiers(id: id))
+    }
+}
+
+extension String {
+    /// The text without emoji, for reading aloud.
+    var withoutEmoji: String {
+        let kept = unicodeScalars.filter { scalar in
+            if scalar.value == 0xFE0F || scalar.value == 0x200D { return false }
+            let properties = scalar.properties
+            return !(properties.isEmoji && (properties.isEmojiPresentation || scalar.value > 0x238C))
         }
-        if let spokenText = spokenText {
-            info[spokenTextKey] = spokenText
+        var text = String(String.UnicodeScalarView(kept))
+        while text.contains("  ") {
+            text = text.replacingOccurrences(of: "  ", with: " ")
         }
-        content.userInfo = info
+        return text.trimmingCharacters(in: .whitespaces)
     }
 }
 

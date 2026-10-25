@@ -9,6 +9,7 @@
 import Foundation
 import CoreLocation
 import AudioToolbox
+import UIKit
 
 // MARK: - Patient side
 
@@ -314,6 +315,9 @@ final class CaretakerConnection: ObservableObject {
     /// Marks the current time outside the safe zone as safe, or undoes it.
     /// While marked safe, no more wander alerts are sent on either phone until the patient returns.
     func setMarkedSafe(_ safe: Bool) {
+        if safe {
+            UrgentRepeat.cancel(id: "caretaker-urgent")
+        }
         patient?.markedSafe = safe
         PatientCloud.setMarkedSafe(pairingCode: currentCode, safe: safe)
     }
@@ -369,42 +373,52 @@ final class CaretakerConnection: ObservableObject {
         switch tier {
         case 1:
             alert(
-                title: "\(name) left the safe zone",
+                title: "⚠️ \(name) left the safe zone",
                 body: "\(name) has left the safe zone.\(distanceText)",
                 vibration: .none,
                 offerMarkSafe: true
             )
         case 2:
             alert(
-                title: "\(name) has been outside for 10 minutes",
-                body: "\(name) has been outside the safe zone for 10 minutes.\(distanceText)",
+                title: "⚠️⚠️ \(name) is still outside after 10 minutes",
+                body: "\(name) has not come back to the safe zone after 10 minutes.\(distanceText) Please check on them now.",
                 vibration: .short,
                 offerMarkSafe: true
             )
         default:
             alert(
-                title: "\(name) has been outside for 30 minutes",
-                body: "\(name) has been outside the safe zone for 30 minutes.\(distanceText) Open the map to see where they are.",
+                title: "🚨 URGENT: \(name) has been gone 30 minutes",
+                body: "\(name) has been outside the safe zone for 30 minutes and has not come back.\(distanceText) Go to them or call for help now. Open the map to see where they are.",
                 vibration: .long,
-                offerMarkSafe: true
+                offerMarkSafe: true,
+                repeatUrgently: true
             )
         }
     }
 
     /// offerMarkSafe adds a "Mark as safe" button to the notification.
-    private func alert(title: String, body: String, vibration: AlertVibration = .short, offerMarkSafe: Bool = false) {
+    private func alert(
+        title: String,
+        body: String,
+        vibration: AlertVibration = .short,
+        offerMarkSafe: Bool = false,
+        repeatUrgently: Bool = false
+    ) {
         if notifyOnAlert {
             LocalNotifier.send(
                 id: "caretaker-alert",
                 title: title,
                 body: body,
-                spokenText: "\(title). \(body)",
+                spokenText: "\(title). \(body)".withoutEmoji,
                 category: offerMarkSafe ? WanderNotification.category : nil,
                 extraInfo: offerMarkSafe ? [WanderNotification.pairingCodeKey: currentCode] : [:]
             )
         }
         if vibrateOnAlert {
             vibration.play()
+        }
+        if repeatUrgently && notifyOnAlert && UIApplication.shared.applicationState != .active {
+            UrgentRepeat.schedule(id: "caretaker-urgent", title: title, body: "🚨 \(patient?.displayName ?? "The patient") still needs attention.")
         }
     }
 
@@ -426,9 +440,9 @@ enum WanderTier {
 
     static func description(_ tier: Int) -> String {
         switch tier {
-        case 1: return "Alert 1 sent: left the safe zone"
-        case 2: return "Alert 2 sent: outside 10 minutes, with vibration"
-        case 3: return "Alert 3 sent: outside 30 minutes, 10 seconds of vibration"
+        case 1: return "⚠️ Alert 1 sent: left the safe zone"
+        case 2: return "⚠️⚠️ Alert 2 sent: outside 10 minutes, with vibration"
+        case 3: return "🚨 Alert 3 sent: outside 30 minutes, 10 seconds of vibration"
         default: return "No alerts sent"
         }
     }

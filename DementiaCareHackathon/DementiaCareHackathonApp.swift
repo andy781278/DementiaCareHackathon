@@ -68,6 +68,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         let info = response.notification.request.content.userInfo
         if response.actionIdentifier == WanderNotification.markSafeAction,
            let code = info[WanderNotification.pairingCodeKey] as? String {
+            UrgentRepeat.cancel(id: "caretaker-urgent")
             PatientCloud.setMarkedSafe(pairingCode: code, safe: true) { _ in
                 completionHandler()
             }
