@@ -40,16 +40,18 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 
     // Show the notification even when the app is open in the foreground.
-    // If it has no spoken sound file, read its text aloud instead of playing the chime.
+    // The app plays the recording or reads the text aloud itself, instead of relying on the notification sound.
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification,
         withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void
     ) {
         let info = notification.request.content.userInfo
-        let hasAudioFile = info[NotificationAudio.hasAudioFileKey] as? Bool ?? false
-        if !hasAudioFile, let spokenText = info[NotificationAudio.spokenTextKey] as? String {
-            ForegroundSpeaker.shared.speak(spokenText)
+        let soundFile = info[NotificationAudio.soundFileKey] as? String
+        let spokenText = info[NotificationAudio.spokenTextKey] as? String
+
+        if soundFile != nil || spokenText != nil {
+            ForegroundSpeaker.shared.play(soundFile: soundFile, spokenText: spokenText)
             completionHandler([.banner, .list])
         } else {
             completionHandler([.banner, .sound, .list])

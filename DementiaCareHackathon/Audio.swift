@@ -157,7 +157,9 @@ final class SpeechFileMaker {
         state.lock.lock()
         let now = Date()
         let idle = state.lastBufferAt.map { now.timeIntervalSince($0) > idleSeconds } ?? false
-        let timedOut = now.timeIntervalSince(startedAt) > 15
+        let elapsed = now.timeIntervalSince(startedAt)
+        // Give up if no audio arrived within 3 seconds, or the whole job takes over 10 seconds.
+        let timedOut = (state.lastBufferAt == nil && elapsed > 3) || elapsed > 10
         let done = idle || timedOut || state.ended
         if done {
             state.ended = true
@@ -198,17 +200,40 @@ final class SpeechFileMaker {
     }
 }
 
-/// Reads text aloud while the app is open. Used when a spoken sound file could not be made.
-final class ForegroundSpeaker {
+/// Plays a notification's audio directly while the app is open: the sound file if there is one,
+/// otherwise the text read aloud. This does not depend on iOS playing custom notification sounds.
+final class ForegroundSpeaker: NSObject, AVAudioPlayerDelegate {
     static let shared = ForegroundSpeaker()
     private let synthesizer = AVSpeechSynthesizer()
+    private var player: AVAudioPlayer?
 
-    func speak(_ text: String) {
+    func play(soundFile: String?, spokenText: String?) {
         DispatchQueue.main.async {
-            let utterance = AVSpeechUtterance(string: text)
-            utterance.rate = 0.45
-            utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-            self.synthesizer.speak(utterance)
+            try? AVAudioSession.sharedInstance().setCategory(.playback, mode: .spokenAudio, options: [.duckOthers])
+            try? AVAudioSession.sharedInstance().setActive(true)
+
+            if let soundFile = soundFile, SoundFiles.exists(soundFile),
+               let player = try? AVAudioPlayer(contentsOf: SoundFiles.url(soundFile)) {
+                self.synthesizer.stopSpeaking(at: .immediate)
+                self.player?.stop()
+                player.delegate = self
+                player.play()
+                self.player = player
+                return
+            }
+
+            if let spokenText = spokenText {
+                let utterance = AVSpeechUtterance(string: spokenText)
+                utterance.rate = 0.45
+                utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
+                self.synthesizer.speak(utterance)
+            }
+        }
+    }
+
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        DispatchQueue.main.async {
+            self.player = nil
         }
     }
 }
