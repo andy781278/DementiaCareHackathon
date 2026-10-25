@@ -12,7 +12,7 @@ import UIKit
 final class BatteryMonitor: ObservableObject {
     @Published var percent: Int?
     @Published var isCharging = false
-    /// A test level set by hand. The simulator has no battery, so this is used to try the alert there.
+    /// A test level set from the caretaker phone. The simulator has no battery, so this is used to try the alert.
     @Published var testPercent: Int?
 
     /// Sound file of a recorded low battery message, if one was recorded.
@@ -32,6 +32,8 @@ final class BatteryMonitor: ObservableObject {
     private var hasAlerted = false
     private var lastUploaded: (percent: Int, charging: Bool)?
     private var observers: [NSObjectProtocol] = []
+    private let testPoller = Poller()
+    private var isFetchingTest = false
 
     func start(profile: PatientProfile) {
         self.profile = profile
@@ -58,6 +60,25 @@ final class BatteryMonitor: ObservableObject {
         ) { _ in }
 
         refresh()
+
+        // Check every few seconds whether the caretaker set a test battery level.
+        testPoller.start(every: 3) { [weak self] in
+            self?.fetchTestPercent()
+        }
+    }
+
+    private func fetchTestPercent() {
+        guard !isFetchingTest, let code = profile?.pairingCode, code.count == 6 else { return }
+        isFetchingTest = true
+        FirestoreREST.get(PatientCloud.path(pairingCode: code)) { [weak self] result in
+            guard let self = self else { return }
+            self.isFetchingTest = false
+            guard case .success(let document) = result else { return }
+            let value = (document?.fields["testBatteryPercent"] as? Int).flatMap { $0 >= 0 ? $0 : nil }
+            if value != self.testPercent {
+                self.setTestPercent(value)
+            }
+        }
     }
 
     /// Call when the setup changes (for example the alert level).
@@ -114,6 +135,7 @@ final class BatteryMonitor: ObservableObject {
     }
 
     deinit {
+        testPoller.stop()
         observers.forEach { NotificationCenter.default.removeObserver($0) }
     }
 }

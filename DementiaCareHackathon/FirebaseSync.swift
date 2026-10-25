@@ -59,6 +59,14 @@ enum PatientCloud {
         ])
     }
 
+    /// Sets a test battery level that the patient phone uses instead of its real battery. nil clears it.
+    static func setTestBattery(pairingCode: String, percent: Int?) {
+        guard pairingCode.count == 6 else { return }
+        FirestoreREST.patch(path(pairingCode: pairingCode), fields: [
+            "testBatteryPercent": FirestoreREST.int(percent ?? -1)
+        ])
+    }
+
     static func delete(pairingCode: String) {
         guard pairingCode.count == 6 else { return }
         FirestoreREST.delete(path(pairingCode: pairingCode))
@@ -86,6 +94,8 @@ struct RemotePatient: Equatable {
     var batteryPercent: Int?
     var batteryCharging: Bool
     var batteryAt: Date?
+    /// Test battery level set from the caretaker phone, or nil when the real battery is used.
+    var testBatteryPercent: Int?
 
     init(data: [String: Any]) {
         name = data["name"] as? String ?? ""
@@ -110,6 +120,7 @@ struct RemotePatient: Equatable {
         batteryPercent = data["batteryPercent"] as? Int
         batteryCharging = data["batteryCharging"] as? Bool ?? false
         batteryAt = data["batteryAt"] as? Date
+        testBatteryPercent = (data["testBatteryPercent"] as? Int).flatMap { $0 >= 0 ? $0 : nil }
     }
 
     var displayName: String {
@@ -237,6 +248,11 @@ final class CaretakerConnection: ObservableObject {
         } else if !isLow {
             hasAlertedBattery = false
         }
+    }
+
+    /// Sets or clears (nil) the test battery level on the patient phone.
+    func setTestBattery(_ percent: Int?) {
+        PatientCloud.setTestBattery(pairingCode: currentCode, percent: percent)
     }
 
     func disconnect() {

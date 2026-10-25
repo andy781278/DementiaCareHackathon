@@ -158,8 +158,10 @@ struct PatientDetailsView: View {
                 }
                 SummaryRow(label: "Alert at", value: "\(profile.batteryThreshold)%")
 
-                if BatteryMonitor.isSimulator {
-                    batteryTestControls
+                if let testPercent = battery.testPercent {
+                    Text("Test level \(testPercent)% set from the caretaker's phone.")
+                        .font(.body)
+                        .foregroundColor(.orange)
                 }
             } header: {
                 Text("Battery")
@@ -196,29 +198,6 @@ struct PatientDetailsView: View {
             }
         }
         .navigationTitle(profile.name)
-    }
-
-    /// The simulator has no battery, so a test level can be set here to try the alert.
-    @ViewBuilder
-    private var batteryTestControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Test battery level (simulator only)")
-                .font(.headline)
-            Slider(
-                value: Binding(
-                    get: { Double(battery.testPercent ?? 50) },
-                    set: { battery.setTestPercent(Int($0.rounded())) }
-                ),
-                in: 0...100,
-                step: 1
-            )
-            if battery.testPercent != nil {
-                Button("Stop test") {
-                    battery.setTestPercent(nil)
-                }
-            }
-        }
-        .padding(.vertical, 4)
     }
 }
 
@@ -365,6 +344,16 @@ struct CaretakerDetailsView: View {
                 }
 
                 Section {
+                    BatteryTestControls(connection: connection, activeTestPercent: patient.testBatteryPercent)
+                } header: {
+                    Text("Test battery level")
+                        .font(.headline)
+                } footer: {
+                    Text("For demos and the simulator: the patient's phone uses this level instead of its real battery.")
+                        .font(.body)
+                }
+
+                Section {
                     SummaryRow(label: "Name", value: patient.name)
                     SummaryRow(label: "Home address", value: patient.homeAddress)
                     SummaryRow(label: "Alert distance", value: String(format: "%.1f miles", patient.safeRadiusMiles))
@@ -415,5 +404,36 @@ struct CaretakerDetailsView: View {
                 .font(.title3)
                 .foregroundColor(.red)
         }
+    }
+}
+
+/// Caretaker controls that set a test battery level on the patient's phone.
+struct BatteryTestControls: View {
+    @ObservedObject var connection: CaretakerConnection
+    let activeTestPercent: Int?
+
+    @State private var value: Double = 50
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("\(Int(value))%")
+                .font(.title2.bold())
+            Slider(value: $value, in: 0...100, step: 1, onEditingChanged: { editing in
+                // Send the level when the finger is lifted, not on every small move.
+                if !editing {
+                    connection.setTestBattery(Int(value))
+                }
+            })
+            if let active = activeTestPercent {
+                Text("Test level \(active)% is active on the patient's phone.")
+                    .font(.body)
+                    .foregroundColor(.orange)
+                Button("Use the real battery again") {
+                    connection.setTestBattery(nil)
+                }
+                .font(.title3)
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
