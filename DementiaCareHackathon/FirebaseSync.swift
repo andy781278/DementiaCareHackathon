@@ -66,6 +66,19 @@ enum PatientCloud {
         ])
     }
 
+    /// Marks the current time outside the safe zone as safe (no more wander alerts until the patient returns).
+    static func setMarkedSafe(pairingCode: String, safe: Bool, completion: ((Error?) -> Void)? = nil) {
+        guard pairingCode.count == 6 else {
+            completion?(nil)
+            return
+        }
+        FirestoreREST.patch(
+            path(pairingCode: pairingCode),
+            fields: ["markedSafe": FirestoreREST.bool(safe)],
+            completion: completion
+        )
+    }
+
     /// Sets a test time outside the safe zone, used by both phones instead of the real time. nil clears it.
     static func setTestMinutesOutside(pairingCode: String, minutes: Double?) {
         guard pairingCode.count == 6 else { return }
@@ -106,6 +119,8 @@ struct RemotePatient: Equatable {
     var isOutsideZone: Bool
     /// When the patient left the safe zone, or nil while inside.
     var outsideSince: Date?
+    /// True when the caretaker marked the current time outside as safe.
+    var markedSafe: Bool
     var distanceFromHomeMeters: Double?
 
     var batteryPercent: Int?
@@ -135,6 +150,7 @@ struct RemotePatient: Equatable {
         lastLocationAt = data["lastLocationAt"] as? Date
         isOutsideZone = data["isOutsideZone"] as? Bool ?? false
         outsideSince = data["outsideSince"] as? Date
+        markedSafe = data["markedSafe"] as? Bool ?? false
         distanceFromHomeMeters = data["distanceFromHomeMeters"] as? Double
 
         batteryPercent = data["batteryPercent"] as? Int
@@ -295,6 +311,13 @@ final class CaretakerConnection: ObservableObject {
         state = .idle
     }
 
+    /// Marks the current time outside the safe zone as safe, or undoes it.
+    /// While marked safe, no more wander alerts are sent on either phone until the patient returns.
+    func setMarkedSafe(_ safe: Bool) {
+        patient?.markedSafe = safe
+        PatientCloud.setMarkedSafe(pairingCode: currentCode, safe: safe)
+    }
+
     /// Sets (or clears with nil) a test time outside, to try the alert tiers without waiting.
     func setTestMinutesOutside(_ minutes: Double?) {
         testMinutesOutside = minutes
@@ -330,6 +353,9 @@ final class CaretakerConnection: ObservableObject {
         let minutes = testMinutesOutside ?? remote.testMinutesOutside ?? realMinutes
         minutesOutside = minutes
 
+        // The caretaker marked this time outside as safe: no more alerts until the patient returns.
+        if remote.markedSafe { return }
+
         let tier = WanderTier.tier(forMinutesOutside: minutes)
         guard tier > alertedTier else { return }
         alertedTier = tier
@@ -345,26 +371,37 @@ final class CaretakerConnection: ObservableObject {
             alert(
                 title: "\(name) left the safe zone",
                 body: "\(name) has left the safe zone.\(distanceText)",
-                vibration: .none
+                vibration: .none,
+                offerMarkSafe: true
             )
         case 2:
             alert(
                 title: "\(name) has been outside for 10 minutes",
                 body: "\(name) has been outside the safe zone for 10 minutes.\(distanceText)",
-                vibration: .short
+                vibration: .short,
+                offerMarkSafe: true
             )
         default:
             alert(
                 title: "\(name) has been outside for 30 minutes",
                 body: "\(name) has been outside the safe zone for 30 minutes.\(distanceText) Open the map to see where they are.",
-                vibration: .long
+                vibration: .long,
+                offerMarkSafe: true
             )
         }
     }
 
-    private func alert(title: String, body: String, vibration: AlertVibration = .short) {
+    /// offerMarkSafe adds a "Mark as safe" button to the notification.
+    private func alert(title: String, body: String, vibration: AlertVibration = .short, offerMarkSafe: Bool = false) {
         if notifyOnAlert {
-            LocalNotifier.send(id: "caretaker-alert", title: title, body: body, spokenText: "\(title). \(body)")
+            LocalNotifier.send(
+                id: "caretaker-alert",
+                title: title,
+                body: body,
+                spokenText: "\(title). \(body)",
+                category: offerMarkSafe ? WanderNotification.category : nil,
+                extraInfo: offerMarkSafe ? [WanderNotification.pairingCodeKey: currentCode] : [:]
+            )
         }
         if vibrateOnAlert {
             vibration.play()

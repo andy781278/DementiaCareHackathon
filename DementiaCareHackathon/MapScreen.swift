@@ -22,6 +22,10 @@ struct MapScreen: View {
     let lowBatteryThreshold: Int
     /// Minutes outside the safe zone, shown on the caretaker's map.
     var minutesOutside: Double? = nil
+    /// True when the caretaker marked the current time outside as safe.
+    var isMarkedSafe: Bool = false
+    /// Caretaker only: marks the current time outside as safe (true) or undoes it (false).
+    var onSetMarkedSafe: ((Bool) -> Void)? = nil
 
     @State private var recenterToken = 0
 
@@ -81,6 +85,9 @@ struct MapScreen: View {
                     Text("Outside for \(Int(minutesOutside)) minutes")
                         .font(.title3.bold())
                         .foregroundColor(.red)
+                }
+                if isOutside, let onSetMarkedSafe = onSetMarkedSafe {
+                    MarkSafeControls(isMarkedSafe: isMarkedSafe, onSetMarkedSafe: onSetMarkedSafe)
                 }
                 if let lastUpdate = lastUpdate {
                     Text("Updated \(lastUpdate.formatted(date: .omitted, time: .shortened))")
@@ -242,6 +249,39 @@ struct ZoneMapView: UIViewRepresentable {
                 view.markerTintColor = isOutside ? .systemRed : .systemGreen
             }
             return view
+        }
+    }
+}
+
+/// Caretaker button to mark the current time outside the safe zone as safe, and to undo it.
+struct MarkSafeControls: View {
+    let isMarkedSafe: Bool
+    let onSetMarkedSafe: (Bool) -> Void
+
+    var body: some View {
+        if isMarkedSafe {
+            VStack(alignment: .leading, spacing: 6) {
+                Label("Marked safe. No more alerts until the patient returns.", systemImage: "checkmark.seal.fill")
+                    .font(.body.bold())
+                    .foregroundColor(.green)
+                Button("Undo") {
+                    onSetMarkedSafe(false)
+                }
+                .font(.title3)
+            }
+        } else {
+            Button {
+                onSetMarkedSafe(true)
+            } label: {
+                Label("Mark as safe", systemImage: "checkmark.shield.fill")
+                    .font(.title3.bold())
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 52)
+                    .background(Color.green)
+                    .foregroundColor(.white)
+                    .cornerRadius(14)
+            }
+            .buttonStyle(.plain)
         }
     }
 }

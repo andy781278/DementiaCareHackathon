@@ -28,6 +28,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     ) -> Bool {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
+        WanderNotification.registerCategory()
 
         center.requestAuthorization(options: [.alert, .sound, .badge]) { granted, error in
             if let error = error {
@@ -55,6 +56,23 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
             completionHandler([.banner, .list])
         } else {
             completionHandler([.banner, .sound, .list])
+        }
+    }
+
+    // Handles the "Mark as safe" button on a wander alert, even when the app is in the background.
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse,
+        withCompletionHandler completionHandler: @escaping () -> Void
+    ) {
+        let info = response.notification.request.content.userInfo
+        if response.actionIdentifier == WanderNotification.markSafeAction,
+           let code = info[WanderNotification.pairingCodeKey] as? String {
+            PatientCloud.setMarkedSafe(pairingCode: code, safe: true) { _ in
+                completionHandler()
+            }
+        } else {
+            completionHandler()
         }
     }
 }

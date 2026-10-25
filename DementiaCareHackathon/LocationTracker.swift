@@ -21,6 +21,8 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var alertedTier = 0
     /// Test time outside set from the caretaker phone, or nil when the real time is used.
     @Published var testMinutesOutside: Double?
+    /// True when the caretaker marked the current time outside as safe.
+    @Published var markedSafe = false
 
     private let tierPoller = Poller()
     private var isFetchingTest = false
@@ -159,10 +161,14 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
             warnPatient(tier: 1)
         } else if !nowOutside && (wasOutside || firstCheck) {
             alertedTier = 0
-            // Clear a test time once the patient is back inside.
+            // Clear a test time and a "marked safe" once the patient is back inside.
             if testMinutesOutside != nil {
                 testMinutesOutside = nil
                 PatientCloud.setTestMinutesOutside(pairingCode: profile.pairingCode, minutes: nil)
+            }
+            if markedSafe {
+                markedSafe = false
+                PatientCloud.setMarkedSafe(pairingCode: profile.pairingCode, safe: false)
             }
         }
 
@@ -188,6 +194,10 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
             self.isFetchingTest = false
             guard case .success(let document) = result else { return }
             let value = (document?.fields["testMinutesOutside"] as? Double).flatMap { $0 >= 0 ? $0 : nil }
+            let safe = document?.fields["markedSafe"] as? Bool ?? false
+            if safe != self.markedSafe {
+                self.markedSafe = safe
+            }
             if value != self.testMinutesOutside {
                 self.testMinutesOutside = value
                 self.checkTier()
@@ -197,7 +207,8 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
 
     /// Gives the 10-minute and 30-minute alerts while the patient stays outside.
     private func checkTier() {
-        guard isOutside else { return }
+        // No more alerts once the caretaker marked this time outside as safe.
+        guard isOutside, !markedSafe else { return }
         let realMinutes = outsideSince.map { max(0, Date().timeIntervalSince($0) / 60) } ?? 0
         let minutes = testMinutesOutside ?? realMinutes
         let tier = WanderTier.tier(forMinutesOutside: minutes)

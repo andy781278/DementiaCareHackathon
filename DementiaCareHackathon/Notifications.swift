@@ -71,6 +71,24 @@ enum NotificationAudio {
     }
 }
 
+enum WanderNotification {
+    static let category = "WANDER_ALERT"
+    static let markSafeAction = "MARK_SAFE"
+    static let pairingCodeKey = "pairingCode"
+
+    /// Adds a "Mark as safe" button to wander alerts on the caretaker phone.
+    static func registerCategory() {
+        let markSafe = UNNotificationAction(identifier: markSafeAction, title: "Mark as safe", options: [])
+        let category = UNNotificationCategory(
+            identifier: self.category,
+            actions: [markSafe],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([category])
+    }
+}
+
 enum LocalNotifier {
     /// Longest wait for a spoken sound file before showing the alert with the default chime.
     private static let speechWaitSeconds: TimeInterval = 2
@@ -81,21 +99,30 @@ enum LocalNotifier {
         title: String,
         body: String,
         soundFile: String? = nil,
-        spokenText: String? = nil
+        spokenText: String? = nil,
+        category: String? = nil,
+        extraInfo: [String: Any] = [:]
     ) {
+        func post(soundFile: String?, spokenText: String?) {
+            self.post(
+                id: id, title: title, body: body, soundFile: soundFile, spokenText: spokenText,
+                category: category, extraInfo: extraInfo
+            )
+        }
+
         if let soundFile = soundFile, SoundFiles.exists(soundFile) {
-            post(id: id, title: title, body: body, soundFile: soundFile, spokenText: spokenText)
+            post(soundFile: soundFile, spokenText: spokenText)
             return
         }
 
         guard let spokenText = spokenText else {
-            post(id: id, title: title, body: body, soundFile: nil, spokenText: nil)
+            post(soundFile: nil, spokenText: nil)
             return
         }
 
         let name = SoundFiles.ttsFileName(for: spokenText)
         if SoundFiles.exists(name) {
-            post(id: id, title: title, body: body, soundFile: name, spokenText: spokenText)
+            post(soundFile: name, spokenText: spokenText)
             return
         }
 
@@ -104,20 +131,38 @@ enum LocalNotifier {
         SpeechFileMaker.shared.make(text: spokenText, url: SoundFiles.url(name)) { success in
             guard !posted else { return }
             posted = true
-            post(id: id, title: title, body: body, soundFile: success ? name : nil, spokenText: spokenText)
+            post(soundFile: success ? name : nil, spokenText: spokenText)
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + speechWaitSeconds) {
             guard !posted else { return }
             posted = true
-            post(id: id, title: title, body: body, soundFile: nil, spokenText: spokenText)
+            post(soundFile: nil, spokenText: spokenText)
         }
     }
 
-    private static func post(id: String, title: String, body: String, soundFile: String?, spokenText: String?) {
+    private static func post(
+        id: String,
+        title: String,
+        body: String,
+        soundFile: String?,
+        spokenText: String?,
+        category: String?,
+        extraInfo: [String: Any]
+    ) {
         let content = UNMutableNotificationContent()
         content.title = title
         content.body = body
         NotificationAudio.apply(to: content, soundFile: soundFile, spokenText: spokenText)
+        if let category = category {
+            content.categoryIdentifier = category
+        }
+        if !extraInfo.isEmpty {
+            var info = content.userInfo
+            for (key, value) in extraInfo {
+                info[key] = value
+            }
+            content.userInfo = info
+        }
 
         // A nil trigger delivers the notification right away.
         let request = UNNotificationRequest(

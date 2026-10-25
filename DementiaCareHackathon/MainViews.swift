@@ -123,6 +123,11 @@ struct PatientDetailsView: View {
                     if let distance = tracker.distanceFromHome {
                         SummaryRow(label: "Distance from home", value: Distance.milesText(meters: distance))
                     }
+                    if tracker.isOutside && tracker.markedSafe {
+                        Label("Your caretaker knows where you are.", systemImage: "checkmark.seal.fill")
+                            .font(.title3)
+                            .foregroundColor(.green)
+                    }
                 }
 
                 if let message = tracker.permissionMessage {
@@ -270,7 +275,9 @@ struct CaretakerMainView: View {
                 batteryPercent: patient.batteryPercent,
                 batteryCharging: patient.batteryCharging,
                 lowBatteryThreshold: profile.batteryThreshold,
-                minutesOutside: connection.minutesOutside
+                minutesOutside: connection.minutesOutside,
+                isMarkedSafe: patient.markedSafe,
+                onSetMarkedSafe: { safe in connection.setMarkedSafe(safe) }
             )
         } else {
             VStack(spacing: 16) {
@@ -322,6 +329,12 @@ struct CaretakerDetailsView: View {
                         if patient.isOutsideZone, let minutes = connection.minutesOutside {
                             SummaryRow(label: "Time outside the safe zone", value: "\(Int(minutes)) minutes")
                             SummaryRow(label: "Alerts", value: WanderTier.description(connection.alertedTier))
+                        }
+                        if patient.isOutsideZone {
+                            MarkSafeControls(isMarkedSafe: patient.markedSafe) { safe in
+                                connection.setMarkedSafe(safe)
+                            }
+                            .padding(.vertical, 4)
                         }
                         if let lastLocationAt = patient.lastLocationAt {
                             SummaryRow(
