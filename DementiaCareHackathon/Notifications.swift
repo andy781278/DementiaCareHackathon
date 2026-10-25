@@ -108,6 +108,28 @@ extension String {
     }
 }
 
+/// Sets a notification's sound and stores what to play while the app is open.
+enum NotificationAudio {
+    static let spokenTextKey = "spokenText"
+    static let soundFileKey = "soundFile"
+
+    static func apply(to content: UNMutableNotificationContent, soundFile: String?, spokenText: String?) {
+        if let soundFile = soundFile {
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(soundFile))
+        } else {
+            content.sound = .default
+        }
+        var info: [String: Any] = [:]
+        if let soundFile = soundFile {
+            info[soundFileKey] = soundFile
+        }
+        if let spokenText = spokenText {
+            info[spokenTextKey] = spokenText
+        }
+        content.userInfo = info
+    }
+}
+
 enum WanderNotification {
     static let category = "WANDER_ALERT"
     static let markSafeAction = "MARK_SAFE"
