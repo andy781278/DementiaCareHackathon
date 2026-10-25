@@ -20,6 +20,8 @@ struct MapScreen: View {
     let batteryPercent: Int?
     let batteryCharging: Bool
     let lowBatteryThreshold: Int
+    /// Minutes outside the safe zone, shown on the caretaker's map.
+    var minutesOutside: Double? = nil
 
     @State private var recenterToken = 0
 
@@ -74,6 +76,11 @@ struct MapScreen: View {
                 if let distanceMeters = distanceMeters {
                     Text("\(Distance.milesText(meters: distanceMeters)) from home")
                         .font(.title3)
+                }
+                if isOutside, let minutesOutside = minutesOutside {
+                    Text("Outside for \(Int(minutesOutside)) minutes")
+                        .font(.title3.bold())
+                        .foregroundColor(.red)
                 }
                 if let lastUpdate = lastUpdate {
                     Text("Updated \(lastUpdate.formatted(date: .omitted, time: .shortened))")

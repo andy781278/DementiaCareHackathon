@@ -15,6 +15,8 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
     @Published var authorization: CLAuthorizationStatus = .notDetermined
     @Published var isOutside = false
     @Published var distanceFromHome: CLLocationDistance?
+    /// When the patient left the safe zone, or nil while inside.
+    @Published var outsideSince: Date?
 
     /// Sound file of a recorded wandering message, if one was recorded.
     var wanderingSoundFile: String?
@@ -133,6 +135,11 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
         let firstCheck = !hasEvaluated
         hasEvaluated = true
         isOutside = nowOutside
+        if nowOutside && outsideSince == nil {
+            outsideSince = Date()
+        } else if !nowOutside {
+            outsideSince = nil
+        }
 
         if nowOutside && (!wasOutside || firstCheck) {
             warnPatient()
@@ -146,6 +153,7 @@ final class LocationTracker: NSObject, ObservableObject, CLLocationManagerDelega
                 pairingCode: profile.pairingCode,
                 location: location,
                 isOutside: nowOutside,
+                outsideSince: outsideSince,
                 distanceMeters: distance
             )
         }

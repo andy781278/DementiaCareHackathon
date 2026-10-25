@@ -36,9 +36,16 @@ enum PatientCloud {
         FirestoreREST.patch(path(pairingCode: profile.pairingCode), fields: fields)
     }
 
-    static func updateLocation(pairingCode: String, location: CLLocation, isOutside: Bool, distanceMeters: Double) {
+    static func updateLocation(
+        pairingCode: String,
+        location: CLLocation,
+        isOutside: Bool,
+        outsideSince: Date?,
+        distanceMeters: Double
+    ) {
         guard pairingCode.count == 6 else { return }
         let fields: [String: [String: Any]] = [
+            "outsideSince": outsideSince.map { FirestoreREST.timestamp($0) } ?? FirestoreREST.null(),
             "lastLocation": FirestoreREST.geoPoint(
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
@@ -89,6 +96,8 @@ struct RemotePatient: Equatable {
     var lastLongitude: Double?
     var lastLocationAt: Date?
     var isOutsideZone: Bool
+    /// When the patient left the safe zone, or nil while inside.
+    var outsideSince: Date?
     var distanceFromHomeMeters: Double?
 
     var batteryPercent: Int?
@@ -115,6 +124,7 @@ struct RemotePatient: Equatable {
         }
         lastLocationAt = data["lastLocationAt"] as? Date
         isOutsideZone = data["isOutsideZone"] as? Bool ?? false
+        outsideSince = data["outsideSince"] as? Date
         distanceFromHomeMeters = data["distanceFromHomeMeters"] as? Double
 
         batteryPercent = data["batteryPercent"] as? Int
@@ -161,7 +171,14 @@ final class CaretakerConnection: ObservableObject {
     private var currentEmail = ""
     private var notifyOnAlert = true
     private var vibrateOnAlert = true
-    private var lastKnownOutside: Bool?
+    /// Minutes the patient has been outside the safe zone, or nil while inside.
+    @Published var minutesOutside: Double?
+    /// A test value set with the caretaker's slider, used instead of the real time outside.
+    @Published var testMinutesOutside: Double?
+    /// The highest wander alert tier already sent during the current time outside (0 = none).
+    @Published var alertedTier = 0
+
+    private var vibrationTimer: Timer?
     private var batteryThreshold = Battery.defaultThreshold
     private var hasAlertedBattery = false
 
@@ -261,38 +278,141 @@ final class CaretakerConnection: ObservableObject {
         currentCode = ""
         currentEmail = ""
         patient = nil
-        lastKnownOutside = nil
+        alertedTier = 0
+        minutesOutside = nil
+        testMinutesOutside = nil
+        vibrationTimer?.invalidate()
         hasAlertedBattery = false
         state = .idle
     }
 
-    private func handleZoneChange(_ remote: RemotePatient) {
-        // Only alert once a location has been shared.
-        guard remote.lastCoordinate != nil else { return }
-        let outside = remote.isOutsideZone
-        defer { lastKnownOutside = outside }
-
-        if outside && lastKnownOutside != true {
-            var body = "\(remote.displayName) has left the safe zone."
-            if let meters = remote.distanceFromHomeMeters {
-                body += " They are \(Distance.milesText(meters: meters)) from home."
-            }
-            alert(title: "\(remote.displayName) wandered off", body: body)
-        } else if !outside && lastKnownOutside == true {
-            alert(title: "\(remote.displayName) is back", body: "\(remote.displayName) is inside the safe zone again.")
+    /// Sets (or clears with nil) a test time outside, to try the alert tiers without waiting.
+    func setTestMinutesOutside(_ minutes: Double?) {
+        testMinutesOutside = minutes
+        if let patient = patient {
+            handleZoneChange(patient)
         }
     }
 
-    private func alert(title: String, body: String) {
+    /// Three alert tiers while the patient is outside the safe zone:
+    /// 1. when they leave: a notification
+    /// 2. after 10 minutes: a notification and vibration
+    /// 3. after 30 minutes: a notification and 10 seconds of vibration
+    private func handleZoneChange(_ remote: RemotePatient) {
+        // Only alert once a location has been shared.
+        guard remote.lastCoordinate != nil else { return }
+
+        guard remote.isOutsideZone else {
+            if alertedTier > 0 {
+                alert(
+                    title: "\(remote.displayName) is back",
+                    body: "\(remote.displayName) is inside the safe zone again.",
+                    vibration: .none
+                )
+            }
+            alertedTier = 0
+            if minutesOutside != nil { minutesOutside = nil }
+            if testMinutesOutside != nil { testMinutesOutside = nil }
+            return
+        }
+
+        let realMinutes = remote.outsideSince.map { max(0, Date().timeIntervalSince($0) / 60) } ?? 0
+        let minutes = testMinutesOutside ?? realMinutes
+        minutesOutside = minutes
+
+        let tier = WanderTier.tier(forMinutesOutside: minutes)
+        guard tier > alertedTier else { return }
+        alertedTier = tier
+
+        var distanceText = ""
+        if let meters = remote.distanceFromHomeMeters {
+            distanceText = " They are \(Distance.milesText(meters: meters)) from home."
+        }
+        let name = remote.displayName
+
+        switch tier {
+        case 1:
+            alert(
+                title: "\(name) left the safe zone",
+                body: "\(name) has left the safe zone.\(distanceText)",
+                vibration: .none
+            )
+        case 2:
+            alert(
+                title: "\(name) has been outside for 10 minutes",
+                body: "\(name) has been outside the safe zone for 10 minutes.\(distanceText)",
+                vibration: .short
+            )
+        default:
+            alert(
+                title: "\(name) has been outside for 30 minutes",
+                body: "\(name) has been outside the safe zone for 30 minutes.\(distanceText) Open the map to see where they are.",
+                vibration: .long
+            )
+        }
+    }
+
+    enum Vibration {
+        case none
+        /// A few pulses.
+        case short
+        /// Pulses for 10 seconds.
+        case long
+    }
+
+    private func alert(title: String, body: String, vibration: Vibration = .short) {
         if notifyOnAlert {
-            LocalNotifier.send(id: "caretaker-zone", title: title, body: body, spokenText: "\(title). \(body)")
+            LocalNotifier.send(id: "caretaker-alert", title: title, body: body, spokenText: "\(title). \(body)")
         }
         if vibrateOnAlert {
+            vibrate(vibration)
+        }
+    }
+
+    private func vibrate(_ vibration: Vibration) {
+        let pulses: Int
+        switch vibration {
+        case .none: return
+        case .short: pulses = 3
+        case .long: pulses = 13 // about 10 seconds at 0.8 seconds apart
+        }
+
+        vibrationTimer?.invalidate()
+        var remaining = pulses - 1
+        AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
+        vibrationTimer = Timer.scheduledTimer(withTimeInterval: 0.8, repeats: true) { timer in
+            guard remaining > 0 else {
+                timer.invalidate()
+                return
+            }
+            remaining -= 1
             AudioServicesPlaySystemSound(kSystemSoundID_Vibrate)
         }
     }
 
     deinit {
         poller.stop()
+        vibrationTimer?.invalidate()
+    }
+}
+
+enum WanderTier {
+    static let secondTierMinutes: Double = 10
+    static let thirdTierMinutes: Double = 30
+
+    /// 0 means inside the safe zone.
+    static func tier(forMinutesOutside minutes: Double) -> Int {
+        if minutes >= thirdTierMinutes { return 3 }
+        if minutes >= secondTierMinutes { return 2 }
+        return 1
+    }
+
+    static func description(_ tier: Int) -> String {
+        switch tier {
+        case 1: return "Alert 1 sent: left the safe zone"
+        case 2: return "Alert 2 sent: outside 10 minutes, with vibration"
+        case 3: return "Alert 3 sent: outside 30 minutes, 10 seconds of vibration"
+        default: return "No alerts sent"
+        }
     }
 }

@@ -48,6 +48,7 @@ enum FirestoreREST {
     static func int(_ value: Int) -> [String: Any] { ["integerValue": String(value)] }
     static func bool(_ value: Bool) -> [String: Any] { ["booleanValue": value] }
     static func bytes(_ value: Data) -> [String: Any] { ["bytesValue": value.base64EncodedString()] }
+    static func null() -> [String: Any] { ["nullValue": NSNull()] }
 
     static func timestamp(_ value: Date) -> [String: Any] {
         ["timestampValue": writeFormatter.string(from: value)]

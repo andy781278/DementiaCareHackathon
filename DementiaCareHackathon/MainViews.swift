@@ -269,7 +269,8 @@ struct CaretakerMainView: View {
                 waitingMessage: "Waiting for \(patient.displayName)'s phone to share its location.",
                 batteryPercent: patient.batteryPercent,
                 batteryCharging: patient.batteryCharging,
-                lowBatteryThreshold: profile.batteryThreshold
+                lowBatteryThreshold: profile.batteryThreshold,
+                minutesOutside: connection.minutesOutside
             )
         } else {
             VStack(spacing: 16) {
@@ -318,6 +319,10 @@ struct CaretakerDetailsView: View {
                         if let distance = patient.distanceFromHomeMeters {
                             SummaryRow(label: "Distance from home", value: Distance.milesText(meters: distance))
                         }
+                        if patient.isOutsideZone, let minutes = connection.minutesOutside {
+                            SummaryRow(label: "Time outside the safe zone", value: "\(Int(minutes)) minutes")
+                            SummaryRow(label: "Alerts", value: WanderTier.description(connection.alertedTier))
+                        }
                         if let lastLocationAt = patient.lastLocationAt {
                             SummaryRow(
                                 label: "Last location update",
@@ -341,6 +346,16 @@ struct CaretakerDetailsView: View {
                 } header: {
                     Text("Status")
                         .font(.headline)
+                }
+
+                Section {
+                    WanderTimeTestControls(connection: connection, isOutside: patient.isOutsideZone)
+                } header: {
+                    Text("Test time outside")
+                        .font(.headline)
+                } footer: {
+                    Text("Alerts: 1 when the patient leaves, 2 after 10 minutes with vibration, 3 after 30 minutes with 10 seconds of vibration. Drag to try them without waiting.")
+                        .font(.body)
                 }
 
                 Section {
@@ -435,5 +450,43 @@ struct BatteryTestControls: View {
             }
         }
         .padding(.vertical, 4)
+    }
+}
+
+/// Caretaker controls that pretend the patient has been outside the safe zone for some time,
+/// to try the three alert tiers.
+struct WanderTimeTestControls: View {
+    @ObservedObject var connection: CaretakerConnection
+    let isOutside: Bool
+
+    @State private var minutes: Double = 0
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            if isOutside {
+                Text("\(Int(minutes)) minutes outside")
+                    .font(.title2.bold())
+                Slider(value: $minutes, in: 0...60, step: 1, onEditingChanged: { editing in
+                    // Apply when the finger is lifted.
+                    if !editing {
+                        connection.setTestMinutesOutside(minutes)
+                    }
+                })
+                if connection.testMinutesOutside != nil {
+                    Button("Use the real time outside") {
+                        connection.setTestMinutesOutside(nil)
+                    }
+                    .font(.title3)
+                }
+            } else {
+                Text("The patient is inside the safe zone. Move the patient's location outside the zone first.")
+                    .font(.body)
+                    .foregroundColor(.secondary)
+            }
+        }
+        .padding(.vertical, 4)
+        .onChange(of: isOutside) { _ in
+            minutes = 0
+        }
     }
 }
